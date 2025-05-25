@@ -14,6 +14,12 @@ A beautiful, lightweight Docker container management service built with Rust, fe
 - **Start/Stop/Restart**: Easy one-click container controls
 - **Launch New Containers**: Start new containers from available images
 - **Real-time Status**: Live updates of container states
+- **Container Details**: Expandable details view showing environment variables and container information
+- **Container Logs**: View real-time container logs with WebSocket streaming
+  - **Live Log Streaming**: Real-time log updates via WebSocket connection
+  - **Configurable History**: Adjustable number of log lines to display
+  - **Log Export**: Download logs as text files with timestamps
+  - **Auto-scroll**: Automatic scrolling to follow new log entries
 
 ### 📊 Advanced Metrics Dashboard
 
@@ -33,6 +39,7 @@ A beautiful, lightweight Docker container management service built with Rust, fe
 - **Glass Morphism**: Beautiful gradient backgrounds with frosted glass effects
 - **Smooth Animations**: Hover effects and transitions
 - **Clean Architecture**: HTML templates separated from Rust code with shared CSS
+- **Secure Authentication**: Built-in login system with session management
 
 ### 🏭 Production Ready
 
@@ -333,10 +340,21 @@ simple-docker-manager/
 - `POST /stop/:id` - Stop a running container
 - `POST /restart/:id` - Restart a container
 
+### Container Logs
+
+- `GET /logs/:id` - View container logs with optional `?tail=N` parameter
+- `GET /logs/:id/ws` - WebSocket endpoint for real-time log streaming
+
 ### API Endpoints
 
 - `GET /api/metrics` - JSON metrics data for all containers
 - `GET /api/config` - Current configuration settings
+
+### Authentication
+
+- `GET /login` - Login page (when authentication is enabled)
+- `POST /login` - Submit login credentials
+- `POST /logout` - Logout and clear session
 
 ### Static Assets
 
@@ -639,6 +657,14 @@ The service continuously polls Docker for container statistics, calculating:
 - **Type Safety**: Strong typing with Rust's type system
 - **Error Handling**: Graceful error handling and user feedback
 
+### Container Details & Management
+
+- **Expandable Details**: Click the "Details" button to view comprehensive container information
+- **Environment Variables**: Sorted alphabetically for easy browsing
+- **Port Mappings**: Consistently ordered by container port number for predictable display
+- **Container Information**: Full container ID, image details, and metadata
+- **One-Click Actions**: Start, stop, restart, and view logs directly from the interface
+
 ## 🔧 Operations
 
 ### Health Monitoring
@@ -729,14 +755,9 @@ RUST_LOG=simple_docker_manager=debug cargo run
 
 ## 🚀 Future Enhancements
 
-- **Container Logs**: View real-time container logs
-- **Image Management**: Pull, build, and manage Docker images
-- **Container Shell**: Execute commands in running containers
-- **Alerts**: Set up alerts for resource thresholds
 - **Historical Data**: Store metrics in a database for long-term analysis
-- **Multi-host Support**: Manage containers across multiple Docker hosts
-- **RBAC**: Role-based access control
-- **API Authentication**: Secure API endpoints
+- **Container Volumes**: Manage and inspect container volumes
+- **Network Management**: View and manage Docker networks
 
 ## 🤝 Contributing
 

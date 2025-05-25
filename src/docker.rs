@@ -93,12 +93,22 @@ pub async fn list_running_containers_with_config(socket_path: Option<&str>) -> R
                     }
                 }
 
+                // Sort ports for consistent display order
+                // Sort by container port first, then by protocol
+                ports.sort_by(|a, b| {
+                    a.container_port.cmp(&b.container_port)
+                        .then_with(|| a.protocol.cmp(&b.protocol))
+                });
+
                 // Extract environment variables
-                let environment = if let Some(config) = &inspect_result.config {
+                let mut environment = if let Some(config) = &inspect_result.config {
                     config.env.clone().unwrap_or_default()
                 } else {
                     Vec::new()
                 };
+
+                // Sort environment variables for consistent display order
+                environment.sort();
 
                 detailed_containers.push(ContainerSummary {
                     id: container_id,
