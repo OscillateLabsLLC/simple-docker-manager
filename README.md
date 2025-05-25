@@ -403,6 +403,56 @@ RUST_LOG=simple_docker_manager=debug cargo run
 4. Add tests if applicable
 5. Submit a pull request
 
+## 📦 Releases
+
+This project uses automated releases powered by [release-please](https://github.com/googleapis/release-please).
+
+### How Releases Work
+
+1. **Conventional Commits**: Use conventional commit messages for automatic changelog generation:
+
+   - `feat:` for new features
+   - `fix:` for bug fixes
+   - `docs:` for documentation changes
+   - `refactor:` for code refactoring
+   - `perf:` for performance improvements
+   - `test:` for test changes
+   - `chore:` for maintenance tasks
+
+2. **Automated Versioning**: When commits are pushed to `main`, release-please automatically:
+
+   - Analyzes commit messages
+   - Updates the version in `Cargo.toml`
+   - Generates a changelog
+   - Creates a release PR
+
+3. **Binary Publishing**: When a release PR is merged:
+   - Cross-platform binaries are built automatically
+   - Binaries are attached to the GitHub release
+   - SHA256 checksums are generated for verification
+
+### Available Binaries
+
+Pre-built binaries are available for each release:
+
+- **Linux x86_64**: `simple-docker-manager-linux-amd64.tar.gz`
+- **macOS Intel**: `simple-docker-manager-macos-amd64.tar.gz`
+- **macOS Apple Silicon**: `simple-docker-manager-macos-arm64.tar.gz`
+
+### Installation from Release
+
+```bash
+# Download and extract (replace with latest version)
+curl -L https://github.com/YOUR_USERNAME/simple-docker-manager/releases/download/v0.1.0/simple-docker-manager-linux-amd64.tar.gz | tar -xz
+
+# Make executable and move to PATH
+chmod +x simple-docker-manager
+sudo mv simple-docker-manager /usr/local/bin/
+
+# Run
+simple-docker-manager
+```
+
 ## 📄 License
 
 This project is open source and available under the [MIT License](LICENSE).
