@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Container Logs - {{CONTAINER_NAME}}</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        .logs-container {
+            background: #1e1e1e;
+            color: #f0f0f0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            padding: 20px;
+            border-radius: 8px;
+            max-height: 600px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin: 20px 0;
+            border: 1px solid #333;
+        }
+
+        .logs-controls {
+            margin: 20px 0;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .logs-controls input[type="number"] {
+            width: 100px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-connected {
+            background-color: #4CAF50;
+        }
+
+        .status-disconnected {
+            background-color: #f44336;
+        }
+
+        .status-connecting {
+            background-color: #ff9800;
+        }
+
+        .log-line {
+            margin-bottom: 2px;
+            line-height: 1.4;
+        }
+
+        .auto-scroll-toggle {
+            margin-left: auto;
+        }
+
+        .logs-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .container-info {
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📜 Container Logs</h1>
+            <div class="container-info">
+                <strong>Container:</strong> {{CONTAINER_NAME}} ({{CONTAINER_ID}})
+            </div>
+        </div>
+        
+        <div class="nav-links">
+            <a href="/">🏠 Management</a>
+            <a href="/metrics">📊 Dashboard</a>
+            <a href="/api/metrics">🔗 JSON API</a>
+        </div>
+
+        <div class="section-card">
+            <div class="logs-header">
+                <h2 class="section-title">Container Logs</h2>
+                <div class="logs-controls">
+                    <label for="tail-lines">Lines to show:</label>
+                    <input type="number" id="tail-lines" value="{{TAIL_VALUE}}" min="10" max="10000" step="10">
+                    <button class="btn btn-primary" onclick="updateLogs()">Update</button>
+                    <button class="btn btn-success" id="connect-btn" onclick="toggleLiveStream()">
+                        <span class="status-indicator status-disconnected" id="status-indicator"></span>
+                        Connect Live Stream
+                    </button>
+                    <button class="btn btn-logs" onclick="exportLogs()">💾 Export Logs</button>
+                    <label class="auto-scroll-toggle">
+                        <input type="checkbox" id="auto-scroll" checked> Auto-scroll
+                    </label>
+                </div>
+            </div>
+            
+            <div class="logs-container" id="logs-content">{{LOGS_CONTENT}}</div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let isConnected = false;
+        let autoScroll = true;
+
+        const logsContent = document.getElementById('logs-content');
+        const connectBtn = document.getElementById('connect-btn');
+        const statusIndicator = document.getElementById('status-indicator');
+        const autoScrollCheckbox = document.getElementById('auto-scroll');
+
+        autoScrollCheckbox.addEventListener('change', (e) => {
+            autoScroll = e.target.checked;
+        });
+
+        function scrollToBottom() {
+            if (autoScroll) {
+                logsContent.scrollTop = logsContent.scrollHeight;
+            }
+        }
+
+        function updateStatus(status) {
+            switch(status) {
+                case 'connected':
+                    connectBtn.innerHTML = '<span class="status-indicator status-connected"></span>Disconnect';
+                    connectBtn.className = 'btn btn-danger';
+                    connectBtn.disabled = false;
+                    isConnected = true;
+                    break;
+                case 'connecting':
+                    connectBtn.innerHTML = '<span class="status-indicator status-connecting"></span>Connecting...';
+                    connectBtn.className = 'btn btn-warning';
+                    connectBtn.disabled = true;
+                    isConnected = false;
+                    break;
+                case 'disconnected':
+                    connectBtn.innerHTML = '<span class="status-indicator status-disconnected"></span>Connect Live Stream';
+                    connectBtn.className = 'btn btn-success';
+                    connectBtn.disabled = false;
+                    isConnected = false;
+                    break;
+            }
+        }
+
+        function connectWebSocket() {
+            updateStatus('connecting');
+            
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/logs/{{CONTAINER_ID}}/ws`;
+            
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                updateStatus('connected');
+                console.log('WebSocket connected');
+            };
+
+            ws.onmessage = function(event) {
+                const logLine = document.createElement('div');
+                logLine.className = 'log-line';
+                logLine.textContent = event.data;
+                logsContent.appendChild(logLine);
+                scrollToBottom();
+            };
+
+            ws.onclose = function(event) {
+                console.log('WebSocket closed:', event.code, event.reason);
+                if (isConnected) {
+                    updateStatus('disconnected');
+                }
+                ws = null;
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                updateStatus('disconnected');
+                ws = null;
+            };
+        }
+
+        function disconnectWebSocket() {
+            console.log('Disconnecting WebSocket...');
+            isConnected = false; // Set this first to prevent onclose from updating status
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close(1000, 'User disconnected'); // Normal closure
+            }
+            ws = null;
+            updateStatus('disconnected');
+        }
+
+        function toggleLiveStream() {
+            console.log('Toggle live stream, currently connected:', isConnected);
+            if (isConnected) {
+                disconnectWebSocket();
+            } else {
+                connectWebSocket();
+            }
+        }
+
+        function updateLogs() {
+            const tailLines = document.getElementById('tail-lines').value;
+            const currentUrl = new URL(window.location);
+            currentUrl.searchParams.set('tail', tailLines);
+            window.location.href = currentUrl.toString();
+        }
+
+        function exportLogs() {
+            const containerName = '{{CONTAINER_NAME}}';
+            const containerId = '{{CONTAINER_ID}}';
+            
+            // Collect all log lines
+            const logLines = Array.from(document.querySelectorAll('#logs-content .log-line, #logs-content'))
+                .map(element => {
+                    if (element.id === 'logs-content') {
+                        // Handle the initial static content
+                        return element.textContent.trim();
+                    } else {
+                        // Handle individual log lines added by WebSocket
+                        return element.textContent.trim();
+                    }
+                })
+                .filter(line => line.length > 0)
+                .join('\n');
+            
+            // If no log lines found, get the raw content
+            const logsContent = logLines || document.getElementById('logs-content').textContent.trim();
+            
+            if (!logsContent) {
+                alert('No logs to export');
+                return;
+            }
+            
+            // Create the file content with header
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const header = `# Container Logs Export
+# Container: ${containerName} (${containerId})
+# Exported: ${new Date().toISOString()}
+# ======================================
+
+`;
+            
+            const fileContent = header + logsContent;
+            
+            // Create and download the file
+            const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            
+            link.href = url;
+            link.download = `${containerName}_logs_${timestamp}.txt`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+            
+            console.log(`Exported ${logsContent.split('\n').length} lines of logs`);
+        }
+
+        // Auto-scroll to bottom on page load
+        scrollToBottom();
+
+        // Clean up WebSocket on page unload
+        window.addEventListener('beforeunload', function() {
+            if (ws) {
+                ws.close();
+            }
+        });
+    </script>
+</body>
+</html> 

@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Path, State, Form},
-    response::{Html, IntoResponse, Redirect},
+    extract::{Path, State, Form, Query, WebSocketUpgrade, ws::{WebSocket, Message}},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Router, Json,
     http::StatusCode,
@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use html_escape;
 use tower_http::services::ServeDir;
+use futures_util::stream::StreamExt;
+use futures_util::sink::SinkExt;
 
 use crate::config::Config;
 use crate::docker;
@@ -31,6 +33,11 @@ pub struct HealthResponse {
 pub struct ConfigResponse {
     metrics_interval_seconds: u64,
     metrics_history_limit: usize,
+}
+
+#[derive(Deserialize)]
+pub struct LogQuery {
+    tail: Option<String>,
 }
 
 struct AppState {
@@ -98,6 +105,7 @@ fn generate_running_container_rows(containers: &[ContainerSummary]) -> String {
                 <button class="btn btn-details" onclick="toggleDetails('{}')">
                     <span id="toggle-{}">▶</span> Details
                 </button>
+                <a href="/logs/{}" class="btn btn-logs">📜 Logs</a>
                 <form action="/stop/{}" method="post">
                     <button class="btn btn-stop" type="submit">🛑 Stop</button>
                 </form>
@@ -105,7 +113,7 @@ fn generate_running_container_rows(containers: &[ContainerSummary]) -> String {
                     <button class="btn btn-restart" type="submit">🔄 Restart</button>
                 </form>
             </div>
-        "#, container.id, container.id, container.id, container.id);
+        "#, container.id, container.id, container.id, container.id, container.id);
 
         // Main container row
         rows_html.push_str(&format!(r#"
@@ -292,6 +300,80 @@ async fn config_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse
     })
 }
 
+async fn logs_handler(Path(container_id): Path<String>, Query(params): Query<LogQuery>) -> impl IntoResponse {
+    let tail = params.tail.as_deref();
+    
+    // Get container info first
+    let container_info = match crate::docker::list_running_containers().await {
+        Ok(containers) => containers.into_iter().find(|c| c.id == container_id || c.name == container_id),
+        Err(_) => None,
+    };
+
+    let container_name = container_info.map(|c| c.name).unwrap_or_else(|| container_id.clone());
+
+    // Get recent logs
+    let logs_result = crate::docker::get_container_logs_recent(&container_id, tail).await;
+    let logs_content = match logs_result {
+        Ok(logs) => logs.join("\n"),
+        Err(e) => format!("Error fetching logs: {}", e),
+    };
+
+    // Load the logs template
+    let template = include_str!("../templates/logs.html");
+    
+    let html_output = template
+        .replace("{{CONTAINER_ID}}", &html_escape::encode_text(&container_id))
+        .replace("{{CONTAINER_NAME}}", &html_escape::encode_text(&container_name))
+        .replace("{{LOGS_CONTENT}}", &html_escape::encode_text(&logs_content))
+        .replace("{{TAIL_VALUE}}", tail.unwrap_or("1000"));
+
+    Html(html_output)
+}
+
+async fn logs_ws_handler(
+    Path(container_id): Path<String>,
+    ws: WebSocketUpgrade,
+) -> Response {
+    ws.on_upgrade(move |socket| logs_websocket(socket, container_id))
+}
+
+async fn logs_websocket(mut socket: WebSocket, container_id: String) {
+    // Get the logs stream
+    let logs_stream = match crate::docker::get_container_logs(&container_id, Some("100"), true).await {
+        Ok(stream) => stream,
+        Err(e) => {
+            let _ = socket.send(Message::Text(format!("Error: {}", e))).await;
+            let _ = socket.close().await;
+            return;
+        }
+    };
+
+    let mut logs_stream = std::pin::pin!(logs_stream);
+    
+    // Send initial message
+    let _ = socket.send(Message::Text("Connected to logs stream...".to_string())).await;
+
+    // Stream logs to websocket
+    while let Some(log_result) = logs_stream.next().await {
+        match log_result {
+            Ok(log_output) => {
+                let log_text = String::from_utf8_lossy(&log_output.into_bytes()).trim().to_string();
+                if !log_text.is_empty() {
+                    if socket.send(Message::Text(log_text)).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = socket.send(Message::Text(format!("Error: {}", e))).await;
+                break;
+            }
+        }
+    }
+    
+    let _ = socket.close().await;
+}
+
 pub fn app_router(config: &Config) -> Router {
     let state = Arc::new(AppState {
         config: config.clone(),
@@ -307,6 +389,8 @@ pub fn app_router(config: &Config) -> Router {
         .route("/restart/:id", post(restart_container_handler))
         .route("/metrics", get(metrics_dashboard_handler))
         .route("/api/metrics", get(metrics_json_handler))
+        .route("/logs/:id", get(logs_handler))
+        .route("/logs/:id/ws", get(logs_ws_handler))
         .nest_service("/static", ServeDir::new("static"))
         .with_state(state)
 } 

@@ -382,6 +382,54 @@ tr:last-child td {
   background: #5a6fd8;
 }
 
+.btn-logs {
+  background: #9c27b0;
+  color: white;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.btn-logs:hover {
+  background: #7b1fa2;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: #2196f3;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #1976d2;
+}
+
+.btn-success {
+  background: #4caf50;
+  color: white;
+}
+
+.btn-success:hover {
+  background: #45a049;
+}
+
+.btn-warning {
+  background: #ff9800;
+  color: white;
+}
+
+.btn-warning:hover {
+  background: #f57c00;
+}
+
+.btn-danger {
+  background: #f44336;
+  color: white;
+}
+
+.btn-danger:hover {
+  background: #da190b;
+}
+
 /* Dashboard Specific Styles */
 .dashboard-grid {
   display: grid;

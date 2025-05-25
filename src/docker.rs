@@ -5,7 +5,8 @@ use bollard::container::{
     StartContainerOptions, 
     StopContainerOptions, 
     RestartContainerOptions,
-    StatsOptions
+    StatsOptions,
+    LogsOptions
 };
 use bollard::image::ListImagesOptions;
 use bollard::Docker;
@@ -340,4 +341,53 @@ pub async fn get_all_metrics() -> Result<MetricsResponse, bollard::errors::Error
         system: system_metrics,
         containers: container_metrics,
     })
+}
+
+/// Get logs for a specific container
+pub async fn get_container_logs(container_id: &str, tail: Option<&str>, follow: bool) -> Result<impl futures_util::Stream<Item = Result<bollard::container::LogOutput, bollard::errors::Error>>, bollard::errors::Error> {
+    let docker = get_docker_client(None)?;
+    
+    let logs_options = Some(LogsOptions::<String> {
+        follow,
+        stdout: true,
+        stderr: true,
+        since: 0,
+        until: 0,
+        timestamps: true,
+        tail: tail.unwrap_or("1000").to_string(),
+    });
+
+    Ok(docker.logs(container_id, logs_options))
+}
+
+/// Get recent logs for a specific container as a vector of strings
+pub async fn get_container_logs_recent(container_id: &str, tail: Option<&str>) -> Result<Vec<String>, bollard::errors::Error> {
+    let docker = get_docker_client(None)?;
+    
+    let logs_options = Some(LogsOptions::<String> {
+        follow: false,
+        stdout: true,
+        stderr: true,
+        since: 0,
+        until: 0,
+        timestamps: true,
+        tail: tail.unwrap_or("1000").to_string(),
+    });
+
+    let mut logs_stream = docker.logs(container_id, logs_options);
+    let mut log_lines = Vec::new();
+    
+    while let Some(log_result) = logs_stream.next().await {
+        match log_result {
+            Ok(log_output) => {
+                let log_text = String::from_utf8_lossy(&log_output.into_bytes()).trim().to_string();
+                if !log_text.is_empty() {
+                    log_lines.push(log_text);
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+
+    Ok(log_lines)
 } 
