@@ -69,14 +69,9 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'simple-docker-manager:security-test'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-
-      - name: Upload Trivy scan results
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: 'trivy-results.sarif'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
 
       - name: Run Hadolint (Dockerfile linter)
         uses: hadolint/hadolint-action@v3.1.0
@@ -121,13 +116,12 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
   # Basic SAST with Semgrep (free tier)
   sast-scan:
     name: SAST Scan
     runs-on: ubuntu-latest
-    container:
-      image: returntocorp/semgrep
     if: github.actor != 'dependabot[bot]'
     steps:
       - name: Checkout code
@@ -135,13 +129,14 @@ jobs:
 
       - name: Run Semgrep
         run: |
-          semgrep --config=auto --sarif --output=semgrep-results.sarif .
-
-      - name: Upload Semgrep results
-        uses: github/codeql-action/upload-sarif@v3
+          pip install semgrep
+          semgrep --config=auto --text .
+          
+      - name: Display Semgrep summary
         if: always()
-        with:
-          sarif_file: semgrep-results.sarif
+        run: |
+          echo "## 🔍 SAST Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "Semgrep scan completed. Check the logs above for any security findings." >> $GITHUB_STEP_SUMMARY
 
   # Security policy check
   security-policy:
@@ -194,4 +189,4 @@ jobs:
           echo "| SAST Scan | ${{ needs.sast-scan.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Security Policy | ${{ needs.security-policy.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🔍 **Review the Security tab for detailed vulnerability reports**" >> $GITHUB_STEP_SUMMARY 
+          echo "🔍 **Check the job logs above for detailed security scan results**" >> $GITHUB_STEP_SUMMARY 
