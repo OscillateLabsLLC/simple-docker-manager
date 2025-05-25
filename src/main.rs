@@ -1,13 +1,13 @@
 use tokio::signal;
 use tower_http::trace::TraceLayer;
-use tracing::{info, error};
+use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+mod auth;
 mod config;
 mod docker;
 mod models;
 mod web;
-mod auth;
 
 use config::Config;
 
@@ -31,10 +31,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Bind to the configured address
     let bind_addr = config.bind_address();
-    let listener = tokio::net::TcpListener::bind(&bind_addr).await.map_err(|e| {
-        error!("Failed to bind to {}: {}", bind_addr, e);
-        format!("Cannot bind to {}. Port may be in use or address unavailable", bind_addr)
-    })?;
+    let listener = tokio::net::TcpListener::bind(&bind_addr)
+        .await
+        .map_err(|e| {
+            error!("Failed to bind to {}: {}", bind_addr, e);
+            format!(
+                "Cannot bind to {}. Port may be in use or address unavailable",
+                bind_addr
+            )
+        })?;
 
     let local_addr = listener.local_addr()?;
     info!("🚀 Server listening on http://{}", local_addr);
@@ -46,10 +51,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Start the server with graceful shutdown
     info!("✅ Server ready! Press Ctrl+C to stop");
-    
+
     // Start the server and wait for shutdown signal
     let server_handle = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal);
-    
+
     // Run the server until it completes (either by shutdown signal or error)
     server_handle.await.map_err(|e| {
         error!("Server error: {}", e);
@@ -101,4 +106,4 @@ async fn shutdown_signal() {
             info!("Received SIGTERM, initiating graceful shutdown...");
         }
     }
-} 
+}

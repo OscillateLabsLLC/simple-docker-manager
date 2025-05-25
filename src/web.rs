@@ -1,22 +1,28 @@
 use axum::{
-    extract::{Path, State, Form, Query, WebSocketUpgrade, ws::{WebSocket, Message}},
+    extract::{
+        ws::{Message, WebSocket},
+        Form, Path, Query, State, WebSocketUpgrade,
+    },
+    http::{HeaderMap, HeaderValue, StatusCode},
+    middleware,
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
-    Router, Json,
-    http::{StatusCode, HeaderMap, HeaderValue},
-    middleware,
+    Json, Router,
 };
+use futures_util::stream::StreamExt;
+use html_escape;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use html_escape;
 use tower_http::services::ServeDir;
-use futures_util::stream::StreamExt;
 use urlencoding;
 
+use crate::auth::{LoginForm, SessionStore};
 use crate::config::Config;
 use crate::docker;
-use crate::models::{ContainerSummary, LocalImageSummary, CreateContainerRequest, EnvironmentVariable, ContainerPortMapping};
-use crate::auth::{SessionStore, LoginForm};
+use crate::models::{
+    ContainerPortMapping, ContainerSummary, CreateContainerRequest, EnvironmentVariable,
+    LocalImageSummary,
+};
 
 #[derive(Deserialize)]
 pub struct StartImageParams {
@@ -28,7 +34,7 @@ pub struct EnhancedStartImageParams {
     image_name: String,
     container_name: Option<String>,
     environment_variables: Option<String>, // JSON string of environment variables
-    port_mappings: Option<String>, // JSON string of port mappings
+    port_mappings: Option<String>,         // JSON string of port mappings
     restart_policy: Option<String>,
 }
 
@@ -60,7 +66,9 @@ struct AppState {
 fn get_status_class(status: &str) -> &'static str {
     match status.to_lowercase().as_str() {
         s if s.contains("running") || s.contains("up") => "status-running",
-        s if s.contains("exited") || s.contains("stopped") || s.contains("created") => "status-exited",
+        s if s.contains("exited") || s.contains("stopped") || s.contains("created") => {
+            "status-exited"
+        }
         _ => "status-other",
     }
 }
@@ -73,19 +81,25 @@ fn generate_running_container_rows(containers: &[ContainerSummary]) -> String {
     let mut rows_html = String::new();
     for container in containers {
         let status_class = get_status_class(&container.status);
-        
+
         // Format ports
         let ports_display = if container.ports.is_empty() {
             "<span class='no-ports'>No exposed ports</span>".to_string()
         } else {
-            container.ports.iter()
+            container
+                .ports
+                .iter()
                 .map(|port| {
                     if let Some(host_port) = port.host_port {
-                        format!("<span class='port-mapping'>{}:{}->{}/{}</span>", 
-                               "0.0.0.0", host_port, port.container_port, port.protocol)
+                        format!(
+                            "<span class='port-mapping'>{}:{}->{}/{}</span>",
+                            "0.0.0.0", host_port, port.container_port, port.protocol
+                        )
                     } else {
-                        format!("<span class='port-internal'>{}/{}</span>", 
-                               port.container_port, port.protocol)
+                        format!(
+                            "<span class='port-internal'>{}/{}</span>",
+                            port.container_port, port.protocol
+                        )
                     }
                 })
                 .collect::<Vec<_>>()
@@ -102,7 +116,7 @@ fn generate_running_container_rows(containers: &[ContainerSummary]) -> String {
                         let (key, value) = env.split_at(eq_pos);
                         let value = &value[1..]; // Skip the '=' character
                         format!("<div class='env-var'><span class='env-key'>{}</span>=<span class='env-value'>{}</span></div>", 
-                               html_escape::encode_text(key), 
+                               html_escape::encode_text(key),
                                html_escape::encode_text(value))
                     } else {
                         format!("<div class='env-var'><span class='env-key'>{}</span></div>", 
@@ -113,7 +127,8 @@ fn generate_running_container_rows(containers: &[ContainerSummary]) -> String {
                 .join("")
         };
 
-        let actions = format!(r#"
+        let actions = format!(
+            r#"
             <div class="actions">
                 <button class="btn btn-details" onclick="toggleDetails('{}')">
                     <span id="toggle-{}">▶</span> Details
@@ -126,10 +141,13 @@ fn generate_running_container_rows(containers: &[ContainerSummary]) -> String {
                     <button class="btn btn-restart" type="submit">🔄 Restart</button>
                 </form>
             </div>
-        "#, container.id, container.id, container.id, container.id, container.id);
+        "#,
+            container.id, container.id, container.id, container.id, container.id
+        );
 
         // Main container row
-        rows_html.push_str(&format!(r#"
+        rows_html.push_str(&format!(
+            r#"
             <tr>
                 <td>{}</td>
                 <td>{}</td>
@@ -139,10 +157,13 @@ fn generate_running_container_rows(containers: &[ContainerSummary]) -> String {
                     {}
                 </td>
             </tr>
-        "#, container.name, container.image, status_class, container.status, ports_display, actions));
+        "#,
+            container.name, container.image, status_class, container.status, ports_display, actions
+        ));
 
         // Details row (initially hidden)
-        rows_html.push_str(&format!(r#"
+        rows_html.push_str(&format!(
+            r#"
             <tr id="details-{}" style="display: none;" class="details-row">
                 <td colspan="5">
                     <div class="container-details">
@@ -168,7 +189,9 @@ fn generate_running_container_rows(containers: &[ContainerSummary]) -> String {
                     </div>
                 </td>
             </tr>
-        "#, container.id, env_vars_display, container.id, container.image));
+        "#,
+            container.id, env_vars_display, container.id, container.image
+        ));
     }
     rows_html
 }
@@ -181,7 +204,8 @@ fn generate_image_rows(images: &[LocalImageSummary]) -> String {
     let mut rows_html = String::new();
     for image in images {
         let display_tag = image.repo_tags.get(0).map_or("N/A", |s| s.as_str());
-        let actions = format!(r#"
+        let actions = format!(
+            r#"
             <div class="actions">
                 <form action="/start-image" method="post" style="display: inline;">
                     <input type="hidden" name="image_name" value="{}">
@@ -189,24 +213,33 @@ fn generate_image_rows(images: &[LocalImageSummary]) -> String {
                 </form>
                 <button class="btn btn-configure" onclick="showAdvancedForm('{}')">⚙️ Configure & Start</button>
             </div>
-        "#, html_escape::encode_text(display_tag), html_escape::encode_text(display_tag));
+        "#,
+            html_escape::encode_text(display_tag),
+            html_escape::encode_text(display_tag)
+        );
 
-        rows_html.push_str(&format!(r#"
+        rows_html.push_str(&format!(
+            r#"
             <tr>
                 <td>{}</td>
                 <td>
                     {}
                 </td>
             </tr>
-        "#, html_escape::encode_text(display_tag), actions));
+        "#,
+            html_escape::encode_text(display_tag),
+            actions
+        ));
     }
     rows_html
 }
 
 async fn index_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let docker_socket = state.config.docker_socket.as_deref();
-    let running_containers_result = crate::docker::list_running_containers_with_config(docker_socket).await;
-    let downloaded_images_result = crate::docker::list_downloaded_images_with_config(docker_socket).await;
+    let running_containers_result =
+        crate::docker::list_running_containers_with_config(docker_socket).await;
+    let downloaded_images_result =
+        crate::docker::list_downloaded_images_with_config(docker_socket).await;
 
     // Load the template
     let template = include_str!("../templates/management.html");
@@ -214,13 +247,19 @@ async fn index_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     // Generate running containers rows
     let running_containers_rows = match running_containers_result {
         Ok(containers) => generate_running_container_rows(&containers),
-        Err(e) => format!(r#"<tr><td colspan="4"><div class="error-message">Error listing running containers: {}</div></td></tr>"#, e),
+        Err(e) => format!(
+            r#"<tr><td colspan="4"><div class="error-message">Error listing running containers: {}</div></td></tr>"#,
+            e
+        ),
     };
 
     // Generate image rows
     let image_rows = match downloaded_images_result {
         Ok(images) => generate_image_rows(&images),
-        Err(e) => format!(r#"<tr><td colspan="2"><div class="error-message">Error listing images: {}</div></td></tr>"#, e),
+        Err(e) => format!(
+            r#"<tr><td colspan="2"><div class="error-message">Error listing images: {}</div></td></tr>"#,
+            e
+        ),
     };
 
     // Generate logout button if auth is enabled
@@ -241,12 +280,24 @@ async fn index_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     Html(html_output)
 }
 
-async fn start_image_handler(State(_state): State<Arc<AppState>>, Form(params): Form<StartImageParams>) -> impl IntoResponse {
+async fn start_image_handler(
+    State(_state): State<Arc<AppState>>,
+    Form(params): Form<StartImageParams>,
+) -> impl IntoResponse {
     match docker::create_and_start_container_from_image(&params.image_name).await {
         Ok(_) => Redirect::to("/").into_response(),
         Err(e) => {
-            tracing::error!("Failed to start container from image {}: {}", params.image_name, e);
-            Html(format!("Error starting container from image {}: {}. <a href=\"/\">Go back</a>", html_escape::encode_text(&params.image_name), e)).into_response()
+            tracing::error!(
+                "Failed to start container from image {}: {}",
+                params.image_name,
+                e
+            );
+            Html(format!(
+                "Error starting container from image {}: {}. <a href=\"/\">Go back</a>",
+                html_escape::encode_text(&params.image_name),
+                e
+            ))
+            .into_response()
         }
     }
 }
@@ -268,7 +319,11 @@ async fn stop_container_handler(Path(container_id): Path<String>) -> impl IntoRe
 async fn restart_container_handler(Path(container_id): Path<String>) -> impl IntoResponse {
     match docker::restart_container(&container_id).await {
         Ok(_) => Redirect::to("/").into_response(),
-        Err(e) => Html(format!("Error restarting container {}: {}", container_id, e)).into_response(),
+        Err(e) => Html(format!(
+            "Error restarting container {}: {}",
+            container_id, e
+        ))
+        .into_response(),
     }
 }
 
@@ -278,14 +333,18 @@ async fn metrics_json_handler(State(state): State<Arc<AppState>>) -> impl IntoRe
         Ok(metrics) => Json(metrics).into_response(),
         Err(e) => {
             tracing::error!("Failed to get metrics: {}", e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Error getting metrics: {}", e)).into_response()
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Error getting metrics: {}", e),
+            )
+                .into_response()
         }
     }
 }
 
 async fn metrics_dashboard_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let template = include_str!("../templates/dashboard.html");
-    
+
     // Generate logout button if auth is enabled
     let logout_button = if state.config.auth_enabled {
         r#"<form action="/logout" method="post" style="display: inline;">
@@ -301,13 +360,18 @@ async fn metrics_dashboard_handler(State(state): State<Arc<AppState>>) -> impl I
 
 async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let docker_socket = state.config.docker_socket.as_deref();
-    let docker_available = match crate::docker::list_running_containers_with_config(docker_socket).await {
-        Ok(_) => true,
-        Err(_) => false,
-    };
+    let docker_available =
+        match crate::docker::list_running_containers_with_config(docker_socket).await {
+            Ok(_) => true,
+            Err(_) => false,
+        };
 
     let health = HealthResponse {
-        status: if docker_available { "healthy".to_string() } else { "unhealthy".to_string() },
+        status: if docker_available {
+            "healthy".to_string()
+        } else {
+            "unhealthy".to_string()
+        },
         version: env!("CARGO_PKG_VERSION").to_string(),
         docker_available,
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -338,16 +402,23 @@ async fn config_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse
     })
 }
 
-async fn logs_handler(Path(container_id): Path<String>, Query(params): Query<LogQuery>) -> impl IntoResponse {
+async fn logs_handler(
+    Path(container_id): Path<String>,
+    Query(params): Query<LogQuery>,
+) -> impl IntoResponse {
     let tail = params.tail.as_deref();
-    
+
     // Get container info first
     let container_info = match crate::docker::list_running_containers().await {
-        Ok(containers) => containers.into_iter().find(|c| c.id == container_id || c.name == container_id),
+        Ok(containers) => containers
+            .into_iter()
+            .find(|c| c.id == container_id || c.name == container_id),
         Err(_) => None,
     };
 
-    let container_name = container_info.map(|c| c.name).unwrap_or_else(|| container_id.clone());
+    let container_name = container_info
+        .map(|c| c.name)
+        .unwrap_or_else(|| container_id.clone());
 
     // Get recent logs
     let logs_result = crate::docker::get_container_logs_recent(&container_id, tail).await;
@@ -358,44 +429,49 @@ async fn logs_handler(Path(container_id): Path<String>, Query(params): Query<Log
 
     // Load the logs template
     let template = include_str!("../templates/logs.html");
-    
+
     let html_output = template
         .replace("{{CONTAINER_ID}}", &html_escape::encode_text(&container_id))
-        .replace("{{CONTAINER_NAME}}", &html_escape::encode_text(&container_name))
+        .replace(
+            "{{CONTAINER_NAME}}",
+            &html_escape::encode_text(&container_name),
+        )
         .replace("{{LOGS_CONTENT}}", &html_escape::encode_text(&logs_content))
         .replace("{{TAIL_VALUE}}", tail.unwrap_or("1000"));
 
     Html(html_output)
 }
 
-async fn logs_ws_handler(
-    Path(container_id): Path<String>,
-    ws: WebSocketUpgrade,
-) -> Response {
+async fn logs_ws_handler(Path(container_id): Path<String>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(move |socket| logs_websocket(socket, container_id))
 }
 
 async fn logs_websocket(mut socket: WebSocket, container_id: String) {
     // Get the logs stream
-    let logs_stream = match crate::docker::get_container_logs(&container_id, Some("100"), true).await {
-        Ok(stream) => stream,
-        Err(e) => {
-            let _ = socket.send(Message::Text(format!("Error: {}", e))).await;
-            let _ = socket.close().await;
-            return;
-        }
-    };
+    let logs_stream =
+        match crate::docker::get_container_logs(&container_id, Some("100"), true).await {
+            Ok(stream) => stream,
+            Err(e) => {
+                let _ = socket.send(Message::Text(format!("Error: {}", e))).await;
+                let _ = socket.close().await;
+                return;
+            }
+        };
 
     let mut logs_stream = std::pin::pin!(logs_stream);
-    
+
     // Send initial message
-    let _ = socket.send(Message::Text("Connected to logs stream...".to_string())).await;
+    let _ = socket
+        .send(Message::Text("Connected to logs stream...".to_string()))
+        .await;
 
     // Stream logs to websocket
     while let Some(log_result) = logs_stream.next().await {
         match log_result {
             Ok(log_output) => {
-                let log_text = String::from_utf8_lossy(&log_output.into_bytes()).trim().to_string();
+                let log_text = String::from_utf8_lossy(&log_output.into_bytes())
+                    .trim()
+                    .to_string();
                 if !log_text.is_empty() {
                     if socket.send(Message::Text(log_text)).await.is_err() {
                         break;
@@ -408,7 +484,7 @@ async fn logs_websocket(mut socket: WebSocket, container_id: String) {
             }
         }
     }
-    
+
     let _ = socket.close().await;
 }
 
@@ -437,26 +513,35 @@ async fn login_post_handler_wrapper(
             Ok(true) => {
                 // Create session
                 let session_id = state.session_store.create_session(&form.username).await;
-                
+
                 // Set session cookie and redirect
-                let cookie = format!("session_id={}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}", 
-                    session_id, state.config.session_timeout_seconds);
-                
-                let mut response = Redirect::to("/").into_response();
-                response.headers_mut().insert(
-                    "Set-Cookie",
-                    HeaderValue::from_str(&cookie).unwrap(),
+                let cookie = format!(
+                    "session_id={}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}",
+                    session_id, state.config.session_timeout_seconds
                 );
+
+                let mut response = Redirect::to("/").into_response();
+                response
+                    .headers_mut()
+                    .insert("Set-Cookie", HeaderValue::from_str(&cookie).unwrap());
                 response
             }
             _ => {
                 tracing::warn!("Failed login attempt for user: {}", form.username);
-                Html(crate::auth::LOGIN_TEMPLATE.replace("{{ERROR}}", "<div class=\"error-message\">❌ Invalid username or password</div>")).into_response()
+                Html(crate::auth::LOGIN_TEMPLATE.replace(
+                    "{{ERROR}}",
+                    "<div class=\"error-message\">❌ Invalid username or password</div>",
+                ))
+                .into_response()
             }
         }
     } else {
         tracing::warn!("Failed login attempt for unknown user: {}", form.username);
-        Html(crate::auth::LOGIN_TEMPLATE.replace("{{ERROR}}", "<div class=\"error-message\">❌ Invalid username or password</div>")).into_response()
+        Html(crate::auth::LOGIN_TEMPLATE.replace(
+            "{{ERROR}}",
+            "<div class=\"error-message\">❌ Invalid username or password</div>",
+        ))
+        .into_response()
     }
 }
 
@@ -492,7 +577,10 @@ fn extract_session_id(cookie_str: &str) -> Option<String> {
     None
 }
 
-async fn start_image_enhanced_handler(State(_state): State<Arc<AppState>>, Form(params): Form<EnhancedStartImageParams>) -> impl IntoResponse {
+async fn start_image_enhanced_handler(
+    State(_state): State<Arc<AppState>>,
+    Form(params): Form<EnhancedStartImageParams>,
+) -> impl IntoResponse {
     // Parse environment variables from JSON string
     let environment_variables = if let Some(env_str) = &params.environment_variables {
         if env_str.trim().is_empty() {
@@ -502,7 +590,11 @@ async fn start_image_enhanced_handler(State(_state): State<Arc<AppState>>, Form(
                 Ok(vars) => vars,
                 Err(e) => {
                     tracing::error!("Failed to parse environment variables: {}", e);
-                    return Html(format!("Error parsing environment variables: {}. <a href=\"/\">Go back</a>", e)).into_response();
+                    return Html(format!(
+                        "Error parsing environment variables: {}. <a href=\"/\">Go back</a>",
+                        e
+                    ))
+                    .into_response();
                 }
             }
         }
@@ -519,7 +611,11 @@ async fn start_image_enhanced_handler(State(_state): State<Arc<AppState>>, Form(
                 Ok(ports) => ports,
                 Err(e) => {
                     tracing::error!("Failed to parse port mappings: {}", e);
-                    return Html(format!("Error parsing port mappings: {}. <a href=\"/\">Go back</a>", e)).into_response();
+                    return Html(format!(
+                        "Error parsing port mappings: {}. <a href=\"/\">Go back</a>",
+                        e
+                    ))
+                    .into_response();
                 }
             }
         }
@@ -537,12 +633,25 @@ async fn start_image_enhanced_handler(State(_state): State<Arc<AppState>>, Form(
 
     match docker::create_and_start_container_enhanced(request).await {
         Ok(container_id) => {
-            tracing::info!("Successfully created and started container {} from image {}", container_id, params.image_name);
+            tracing::info!(
+                "Successfully created and started container {} from image {}",
+                container_id,
+                params.image_name
+            );
             Redirect::to("/").into_response()
-        },
+        }
         Err(e) => {
-            tracing::error!("Failed to start container from image {}: {}", params.image_name, e);
-            Html(format!("Error starting container from image {}: {}. <a href=\"/\">Go back</a>", html_escape::encode_text(&params.image_name), e)).into_response()
+            tracing::error!(
+                "Failed to start container from image {}: {}",
+                params.image_name,
+                e
+            );
+            Html(format!(
+                "Error starting container from image {}: {}. <a href=\"/\">Go back</a>",
+                html_escape::encode_text(&params.image_name),
+                e
+            ))
+            .into_response()
         }
     }
 }
@@ -552,12 +661,16 @@ async fn image_info_handler(Path(image_name): Path<String>) -> impl IntoResponse
     let decoded_image_name = urlencoding::decode(&image_name)
         .map_err(|e| format!("Invalid image name encoding: {}", e))
         .unwrap_or_else(|_| std::borrow::Cow::Borrowed(&image_name));
-    
+
     match docker::get_image_info(&decoded_image_name).await {
         Ok(image_info) => Json(image_info).into_response(),
         Err(e) => {
             tracing::error!("Failed to get image info for {}: {}", decoded_image_name, e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Error getting image info: {}", e)).into_response()
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Error getting image info: {}", e),
+            )
+                .into_response()
         }
     }
 }
@@ -567,7 +680,7 @@ pub fn app_router(config: &Config) -> Router {
         config: config.clone(),
         session_store: Arc::new(SessionStore::new(Arc::new(config.clone()))),
     });
-    
+
     Router::new()
         .route("/", get(index_handler))
         .route("/health", get(health_handler))

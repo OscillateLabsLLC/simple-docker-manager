@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PortMapping {
@@ -84,4 +84,4 @@ pub struct SystemMetrics {
 pub struct MetricsResponse {
     pub system: SystemMetrics,
     pub containers: Vec<ContainerMetrics>,
-} 
+}

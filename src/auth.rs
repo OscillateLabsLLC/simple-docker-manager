@@ -6,7 +6,11 @@ use axum::{
     Form,
 };
 use serde::Deserialize;
-use std::{collections::HashMap, sync::Arc, time::{Duration, SystemTime}};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -45,20 +49,20 @@ impl SessionStore {
 
         let mut sessions = self.sessions.write().await;
         sessions.insert(session_id.clone(), session);
-        
+
         tracing::info!("Created session for user: {}", username);
         session_id
     }
 
     pub async fn get_session(&self, session_id: &str) -> Option<Session> {
         let mut sessions = self.sessions.write().await;
-        
+
         // Check if session exists and is not expired
         let should_remove = if let Some(session) = sessions.get(session_id) {
             let session_duration = SystemTime::now()
                 .duration_since(session.last_accessed)
                 .unwrap_or(Duration::ZERO);
-            
+
             session_duration.as_secs() > self.config.session_timeout_seconds
         } else {
             return None;
@@ -94,9 +98,11 @@ impl SessionStore {
         let mut sessions = self.sessions.write().await;
         let now = SystemTime::now();
         let timeout = Duration::from_secs(self.config.session_timeout_seconds);
-        
+
         sessions.retain(|_, session| {
-            let age = now.duration_since(session.last_accessed).unwrap_or(Duration::ZERO);
+            let age = now
+                .duration_since(session.last_accessed)
+                .unwrap_or(Duration::ZERO);
             age < timeout
         });
     }
@@ -115,8 +121,8 @@ pub async fn auth_middleware(
 ) -> Response {
     // Skip auth for health endpoints, static assets, and login/logout
     let path = request.uri().path();
-    if path.starts_with("/health") 
-        || path.starts_with("/ready") 
+    if path.starts_with("/health")
+        || path.starts_with("/ready")
         || path.starts_with("/static/")
         || path == "/login"
         || path == "/logout"
@@ -177,21 +183,23 @@ pub async fn login_post_handler(
             Ok(true) => {
                 // Create session
                 let session_id = session_store.create_session(&form.username).await;
-                
+
                 // Set session cookie and redirect
-                let cookie = format!("session_id={}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}", 
-                    session_id, session_store.config.session_timeout_seconds);
-                
-                let mut response = Redirect::to("/").into_response();
-                response.headers_mut().insert(
-                    "Set-Cookie",
-                    HeaderValue::from_str(&cookie).unwrap(),
+                let cookie = format!(
+                    "session_id={}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}",
+                    session_id, session_store.config.session_timeout_seconds
                 );
+
+                let mut response = Redirect::to("/").into_response();
+                response
+                    .headers_mut()
+                    .insert("Set-Cookie", HeaderValue::from_str(&cookie).unwrap());
                 response
             }
             _ => {
                 tracing::warn!("Failed login attempt for user: {}", form.username);
-                Html(LOGIN_TEMPLATE.replace("{{ERROR}}", "Invalid username or password")).into_response()
+                Html(LOGIN_TEMPLATE.replace("{{ERROR}}", "Invalid username or password"))
+                    .into_response()
             }
         }
     } else {
@@ -200,7 +208,10 @@ pub async fn login_post_handler(
     }
 }
 
-pub async fn logout_handler(State(session_store): State<Arc<SessionStore>>, headers: HeaderMap) -> impl IntoResponse {
+pub async fn logout_handler(
+    State(session_store): State<Arc<SessionStore>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
     // Extract session ID from cookie and remove session
     if let Some(cookie_header) = headers.get("cookie") {
         if let Ok(cookie_str) = cookie_header.to_str() {
@@ -348,4 +359,4 @@ pub const LOGIN_TEMPLATE: &str = r#"
     </div>
 </body>
 </html>
-"#; 
+"#;

@@ -1,6 +1,6 @@
-use serde::Deserialize;
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use argon2::password_hash::{rand_core::OsRng, SaltString};
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use serde::Deserialize;
 use std::fs;
 use std::path::Path;
 
@@ -9,52 +9,52 @@ pub struct Config {
     /// Server host to bind to
     #[serde(default = "default_host")]
     pub host: String,
-    
+
     /// Server port to bind to
     #[serde(default = "default_port")]
     pub port: u16,
-    
+
     /// Log level for the application
     #[serde(default = "default_log_level")]
     pub log_level: String,
-    
+
     /// Docker socket path (usually auto-detected)
     #[serde(default)]
     pub docker_socket: Option<String>,
-    
+
     /// Metrics update interval in seconds
     #[serde(default = "default_metrics_interval")]
     pub metrics_interval_seconds: u64,
-    
+
     /// Maximum number of metrics history points to keep
     #[serde(default = "default_metrics_history")]
     pub metrics_history_limit: usize,
-    
+
     /// Maximum number of containers to show in charts (for performance and readability)
     #[serde(default = "default_max_chart_containers")]
     pub max_chart_containers: usize,
-    
+
     /// Graceful shutdown timeout in seconds
     #[serde(default = "default_shutdown_timeout")]
     pub shutdown_timeout_seconds: u64,
-    
+
     /// Authentication settings
     /// Enable/disable authentication (default: true for security)
     #[serde(default = "default_auth_enabled")]
     pub auth_enabled: bool,
-    
+
     /// Username for basic authentication (default: admin)
     #[serde(default = "default_auth_username")]
     pub auth_username: String,
-    
+
     /// Password for basic authentication (default: randomly generated on first run)
     #[serde(default)]
     pub auth_password: Option<String>,
-    
+
     /// Hashed password (internal use, generated from password)
     #[serde(default)]
     pub auth_password_hash: Option<String>,
-    
+
     /// Session timeout in seconds (default: 3600 = 1 hour)
     #[serde(default = "default_session_timeout")]
     pub session_timeout_seconds: u64,
@@ -65,10 +65,10 @@ impl Config {
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
         // Load .env file if present (ignored if not found)
         let _ = dotenvy::dotenv();
-        
+
         // Use envy to deserialize from environment variables with SDM_ prefix
         let mut config = envy::prefixed("SDM_").from_env::<Config>()?;
-        
+
         // Handle authentication setup
         if config.auth_enabled {
             config.setup_authentication().map_err(|e| e.to_string())?;
@@ -80,11 +80,11 @@ impl Config {
             tracing::warn!("🚨 Set SDM_AUTH_ENABLED=true for security");
             tracing::warn!("🚨 ================================");
         }
-        
+
         tracing::info!("Configuration loaded: {:#?}", config);
         Ok(config)
     }
-    
+
     /// Set up authentication by handling password and hashing
     fn setup_authentication(&mut self) -> Result<(), String> {
         match (&self.auth_password, &self.auth_password_hash) {
@@ -108,35 +108,47 @@ impl Config {
                     // Generate a new password and save it
                     let generated_password = Self::generate_password();
                     self.auth_password_hash = Some(Self::hash_password(&generated_password)?);
-                    
+
                     let password_file = Self::get_password_file_path();
-                    
+
                     // Save password to file
                     if let Err(e) = Self::save_password_to_file(&generated_password) {
                         tracing::error!("Failed to save password to file: {}", e);
                     }
-                    
+
                     tracing::warn!("🔐 ================================");
                     tracing::warn!("🔐 AUTHENTICATION ENABLED");
-                    tracing::warn!("🔐 Generated secure password for user '{}':", self.auth_username);
+                    tracing::warn!(
+                        "🔐 Generated secure password for user '{}':",
+                        self.auth_username
+                    );
                     tracing::warn!("🔐 PASSWORD: {}", generated_password);
                     tracing::warn!("🔐 Password saved to: {}", password_file);
                     tracing::warn!("🔐 ================================");
-                    tracing::warn!("💡 TIP: You can view the password anytime with: cat {}", password_file);
+                    tracing::warn!(
+                        "💡 TIP: You can view the password anytime with: cat {}",
+                        password_file
+                    );
                     tracing::warn!("💡 TIP: Set SDM_AUTH_PASSWORD environment variable to use a custom password.");
                     tracing::warn!("💡 TIP: Set SDM_PASSWORD_FILE environment variable to use a custom file location.");
                 }
             }
             (Some(_), Some(_)) => {
-                tracing::info!("🔐 Using provided password hash for user: {}", self.auth_username);
+                tracing::info!(
+                    "🔐 Using provided password hash for user: {}",
+                    self.auth_username
+                );
             }
             (None, Some(_)) => {
-                tracing::info!("🔐 Using provided password hash for user: {}", self.auth_username);
+                tracing::info!(
+                    "🔐 Using provided password hash for user: {}",
+                    self.auth_username
+                );
             }
         }
         Ok(())
     }
-    
+
     /// Load password from the password file
     fn load_password_from_file() -> Option<String> {
         let password_file = Self::get_password_file_path();
@@ -155,18 +167,18 @@ impl Config {
         }
         None
     }
-    
+
     /// Save password to the password file
     fn save_password_to_file(password: &str) -> Result<(), std::io::Error> {
         let password_file = Self::get_password_file_path();
-        
+
         // Create directory if it doesn't exist
         if let Some(parent) = Path::new(&password_file).parent() {
             fs::create_dir_all(parent)?;
         }
-        
+
         fs::write(&password_file, password)?;
-        
+
         // Set restrictive permissions on Unix systems
         #[cfg(unix)]
         {
@@ -175,32 +187,35 @@ impl Config {
             perms.set_mode(0o600); // Read/write for owner only
             fs::set_permissions(&password_file, perms)?;
         }
-        
-        tracing::info!("Password saved to {} with secure permissions", password_file);
+
+        tracing::info!(
+            "Password saved to {} with secure permissions",
+            password_file
+        );
         Ok(())
     }
-    
+
     /// Get the password file path, preferring container-friendly locations
     fn get_password_file_path() -> String {
         // Check for custom path via environment variable
         if let Ok(custom_path) = std::env::var("SDM_PASSWORD_FILE") {
             return custom_path;
         }
-        
+
         // Container-friendly paths (in order of preference)
         let container_paths = [
-            "/data/sdm_password",           // Common data volume mount
-            "/config/sdm_password",         // Common config volume mount
-            "/app/data/sdm_password",       // App-specific data directory
-            "/var/lib/sdm/password",        // System-style location
+            "/data/sdm_password",     // Common data volume mount
+            "/config/sdm_password",   // Common config volume mount
+            "/app/data/sdm_password", // App-specific data directory
+            "/var/lib/sdm/password",  // System-style location
         ];
-        
+
         // Check if we're likely in a container (common indicators)
-        let likely_container = std::env::var("KUBERNETES_SERVICE_HOST").is_ok() ||
-                              std::env::var("DOCKER_CONTAINER").is_ok() ||
-                              Path::new("/.dockerenv").exists() ||
-                              std::env::var("container").is_ok();
-        
+        let likely_container = std::env::var("KUBERNETES_SERVICE_HOST").is_ok()
+            || std::env::var("DOCKER_CONTAINER").is_ok()
+            || Path::new("/.dockerenv").exists()
+            || std::env::var("container").is_ok();
+
         if likely_container {
             // In container: try to use a writable container path
             for path in &container_paths {
@@ -212,11 +227,11 @@ impl Config {
                 }
             }
         }
-        
+
         // Fallback to current directory (development/local use)
         ".sdm_password".to_string()
     }
-    
+
     /// Generate a secure random password
     fn generate_password() -> String {
         // Generate a longer, more secure password using two UUIDs
@@ -224,28 +239,31 @@ impl Config {
         let uuid2 = uuid::Uuid::new_v4().to_string().replace("-", "");
         format!("{}{}", &uuid1[..12], &uuid2[..12]) // 24 character password
     }
-    
+
     /// Hash a password using Argon2
     fn hash_password(password: &str) -> Result<String, String> {
         let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
-        let password_hash = argon2.hash_password(password.as_bytes(), &salt)
+        let password_hash = argon2
+            .hash_password(password.as_bytes(), &salt)
             .map_err(|e| format!("Failed to hash password: {}", e))?;
         Ok(password_hash.to_string())
     }
-    
+
     /// Verify a password against the stored hash
     pub fn verify_password(&self, password: &str) -> Result<bool, String> {
         if let Some(hash) = &self.auth_password_hash {
             let parsed_hash = PasswordHash::new(hash)
                 .map_err(|e| format!("Failed to parse password hash: {}", e))?;
             let argon2 = Argon2::default();
-            Ok(argon2.verify_password(password.as_bytes(), &parsed_hash).is_ok())
+            Ok(argon2
+                .verify_password(password.as_bytes(), &parsed_hash)
+                .is_ok())
         } else {
             Ok(false)
         }
     }
-    
+
     /// Get the full bind address
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.host, self.port)
@@ -311,4 +329,4 @@ impl Default for Config {
             session_timeout_seconds: default_session_timeout(),
         }
     }
-} 
+}
