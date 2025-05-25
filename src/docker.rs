@@ -13,7 +13,19 @@ use bollard::Docker;
 use std::default::Default;
 use chrono::Utc;
 use futures_util::stream::StreamExt;
-use super::models::{ContainerSummary, LocalImageSummary, ContainerMetrics, SystemMetrics, MetricsResponse, PortMapping};
+use std::collections::HashMap;
+use super::models::{
+    ContainerSummary, 
+    LocalImageSummary, 
+    ContainerMetrics, 
+    SystemMetrics, 
+    MetricsResponse, 
+    PortMapping,
+    CreateContainerRequest,
+    ImageInfo,
+    ContainerPortMapping,
+    EnvironmentVariable
+};
 
 /// Get a Docker client with optional custom socket configuration
 fn get_docker_client(socket_path: Option<&str>) -> Result<Docker, bollard::errors::Error> {
@@ -194,6 +206,101 @@ pub async fn create_and_start_container_from_image(image_name: &str) -> Result<(
     // Bollard's create_container returns a CreateContainerResponse which has an 'id' field.
     // We should use this ID to start the container for robustness.
     docker.start_container(&response.id, None::<StartContainerOptions<String>>).await
+}
+
+/// Enhanced container creation with environment variables, port mappings, and restart policies
+pub async fn create_and_start_container_enhanced(request: CreateContainerRequest) -> Result<String, bollard::errors::Error> {
+    let docker = Docker::connect_with_local_defaults()?;
+    
+    // Generate container name if not provided
+    let container_name = request.container_name.unwrap_or_else(|| {
+        format!("{}-{}", 
+            request.image_name.split(':').next().unwrap_or("container").replace("/", "-"), 
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() % 10000
+        )
+    });
+
+    let options = Some(CreateContainerOptions {
+        name: container_name.clone(),
+        platform: None,
+    });
+
+    // Convert environment variables to Docker format
+    let env_vars: Vec<String> = request.environment_variables
+        .iter()
+        .map(|env| format!("{}={}", env.key, env.value))
+        .collect();
+
+    // Convert port mappings to Docker format
+    let mut exposed_ports = HashMap::new();
+    let mut port_bindings = HashMap::new();
+
+    for port_mapping in &request.port_mappings {
+        // Skip empty port mappings (container port of 0)
+        if port_mapping.container_port == 0 {
+            continue;
+        }
+        
+        let port_key = format!("{}/{}", port_mapping.container_port, port_mapping.protocol);
+        
+        // Expose the port
+        exposed_ports.insert(port_key.clone(), HashMap::new());
+        
+        // Determine host port: use specified host port, or default to same as container port
+        let host_port = port_mapping.host_port.unwrap_or(port_mapping.container_port);
+        
+        port_bindings.insert(
+            port_key,
+            Some(vec![bollard::models::PortBinding {
+                host_ip: Some("0.0.0.0".to_string()),
+                host_port: Some(host_port.to_string()),
+            }])
+        );
+    }
+
+    // Convert restart policy using the correct enum
+    let restart_policy = request.restart_policy.as_ref().map(|policy| {
+        use bollard::models::RestartPolicyNameEnum;
+        let policy_enum = match policy.as_str() {
+            "no" => RestartPolicyNameEnum::NO,
+            "always" => RestartPolicyNameEnum::ALWAYS,
+            "unless-stopped" => RestartPolicyNameEnum::UNLESS_STOPPED,
+            "on-failure" => RestartPolicyNameEnum::ON_FAILURE,
+            _ => RestartPolicyNameEnum::NO, // Default fallback
+        };
+        
+        bollard::models::RestartPolicy {
+            name: Some(policy_enum),
+            maximum_retry_count: if policy == "on-failure" { Some(3) } else { None },
+        }
+    });
+
+    let host_config = if !port_bindings.is_empty() || restart_policy.is_some() {
+        Some(bollard::models::HostConfig {
+            port_bindings: if port_bindings.is_empty() { None } else { Some(port_bindings) },
+            restart_policy,
+            ..Default::default()
+        })
+    } else {
+        None
+    };
+
+    let config = Config {
+        image: Some(request.image_name.clone()),
+        env: if env_vars.is_empty() { None } else { Some(env_vars) },
+        exposed_ports: if exposed_ports.is_empty() { None } else { Some(exposed_ports) },
+        host_config,
+        attach_stdout: Some(true),
+        attach_stderr: Some(true),
+        tty: Some(false),
+        open_stdin: Some(false),
+        ..Default::default()
+    };
+
+    let response = docker.create_container(options, config).await?;
+    docker.start_container(&response.id, None::<StartContainerOptions<String>>).await?;
+    
+    Ok(response.id)
 }
 
 pub async fn start_container(container_id_or_name: &str) -> Result<(), bollard::errors::Error> {
@@ -400,4 +507,62 @@ pub async fn get_container_logs_recent(container_id: &str, tail: Option<&str>) -
     }
 
     Ok(log_lines)
+}
+
+/// Get detailed information about a Docker image including exposed ports and environment variables
+pub async fn get_image_info(image_name: &str) -> Result<ImageInfo, bollard::errors::Error> {
+    let docker = get_docker_client(None)?;
+    
+    // Inspect the image
+    let image_inspect = docker.inspect_image(image_name).await?;
+    
+    // Extract exposed ports
+    let mut exposed_ports = Vec::new();
+    if let Some(config) = &image_inspect.config {
+        if let Some(exposed_ports_map) = &config.exposed_ports {
+            for port_key in exposed_ports_map.keys() {
+                if let Some(slash_pos) = port_key.find('/') {
+                    let port_str = &port_key[..slash_pos];
+                    let protocol_str = &port_key[slash_pos + 1..];
+                    if let Ok(port_num) = port_str.parse::<u16>() {
+                        exposed_ports.push(ContainerPortMapping {
+                            container_port: port_num,
+                            host_port: None, // Image doesn't specify host port
+                            protocol: protocol_str.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    
+    // Sort ports for consistent display
+    exposed_ports.sort_by_key(|p| p.container_port);
+    
+    // Extract environment variables
+    let mut environment_variables = Vec::new();
+    if let Some(config) = &image_inspect.config {
+        if let Some(env_vars) = &config.env {
+            for env_var in env_vars {
+                if let Some(eq_pos) = env_var.find('=') {
+                    let (key, value) = env_var.split_at(eq_pos);
+                    let value = &value[1..]; // Skip the '=' character
+                    environment_variables.push(EnvironmentVariable {
+                        key: key.to_string(),
+                        value: value.to_string(),
+                    });
+                }
+            }
+        }
+    }
+    
+    // Sort environment variables for consistent display
+    environment_variables.sort_by(|a, b| a.key.cmp(&b.key));
+    
+    Ok(ImageInfo {
+        id: image_inspect.id.unwrap_or_default(),
+        repo_tags: image_inspect.repo_tags.unwrap_or_default(),
+        exposed_ports,
+        environment_variables,
+    })
 } 

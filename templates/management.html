@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Docker Container Management</title>
+    <title>Simple Docker Management</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐳</text></svg>">
@@ -10,8 +10,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🐳 Docker Container Management</h1>
-            <p>Manage your Docker containers with ease</p>
+            <h1>🐳 Simple Docker Management</h1>
         </div>
         
         <div class="nav-links">
@@ -59,6 +58,71 @@
         </div>
     </div>
 
+    <!-- Advanced Container Configuration Modal -->
+    <div id="advancedModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>⚙️ Configure Container</h3>
+                <span class="close" onclick="hideAdvancedForm()">&times;</span>
+            </div>
+            <form id="advancedForm" action="/start-image-enhanced" method="post">
+                <input type="hidden" id="modalImageName" name="image_name" value="">
+                
+                <div class="form-group">
+                    <label for="containerName">Container Name (optional):</label>
+                    <input type="text" id="containerName" name="container_name" placeholder="Leave empty for auto-generated name">
+                </div>
+
+                <div class="form-group">
+                    <label>Environment Variables:</label>
+                    <div id="envVars">
+                        <div class="env-var-row">
+                            <input type="text" placeholder="Variable name" class="env-key">
+                            <input type="text" placeholder="Variable value" class="env-value">
+                            <button type="button" onclick="removeEnvVar(this)">Remove</button>
+                        </div>
+                    </div>
+                    <button type="button" onclick="addEnvVar()">Add Environment Variable</button>
+                </div>
+
+                <div class="form-group">
+                    <label>Port Mappings:</label>
+                    <div id="portMappings">
+                        <div class="port-mapping-row">
+                            <input type="number" placeholder="Container port" class="container-port" min="1" max="65535">
+                            <input type="number" placeholder="Host port (leave empty to use same as container port)" class="host-port" min="1" max="65535">
+                            <select class="protocol">
+                                <option value="tcp">TCP</option>
+                                <option value="udp">UDP</option>
+                            </select>
+                            <button type="button" onclick="removePortMapping(this)">Remove</button>
+                        </div>
+                    </div>
+                    <button type="button" onclick="addPortMapping()">Add Port Mapping</button>
+                </div>
+
+                <div class="form-group">
+                    <label for="restartPolicy">Restart Policy:</label>
+                    <select id="restartPolicy" name="restart_policy">
+                        <option value="">No restart policy</option>
+                        <option value="no">No</option>
+                        <option value="always">Always</option>
+                        <option value="unless-stopped">Unless stopped</option>
+                        <option value="on-failure">On failure</option>
+                    </select>
+                </div>
+
+                <input type="hidden" id="environmentVariables" name="environment_variables" value="">
+                <input type="hidden" id="portMappingsData" name="port_mappings" value="">
+
+                <div class="form-actions">
+                    <button type="button" onclick="hideAdvancedForm()">Cancel</button>
+                    <button type="submit">🚀 Create & Start Container</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         function toggleDetails(containerId) {
             const detailsRow = document.getElementById('details-' + containerId);
@@ -70,6 +134,274 @@
             } else {
                 detailsRow.style.display = 'none';
                 toggleIcon.textContent = '▶';
+            }
+        }
+
+        function showAdvancedForm(imageName) {
+            document.getElementById('modalImageName').value = imageName;
+            document.getElementById('advancedModal').style.display = 'block';
+            
+            // Reset form
+            document.getElementById('containerName').value = '';
+            document.getElementById('restartPolicy').value = '';
+            
+            // Show loading state
+            const envVarsContainer = document.getElementById('envVars');
+            const portMappingsContainer = document.getElementById('portMappings');
+            
+            envVarsContainer.innerHTML = '<div style="text-align: center; padding: 20px;">Loading image information...</div>';
+            portMappingsContainer.innerHTML = '<div style="text-align: center; padding: 20px;">Loading image information...</div>';
+            
+            // Fetch image information
+            const encodedImageName = encodeURIComponent(imageName);
+            fetch(`/api/image/${encodedImageName}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(imageInfo => {
+                    // Populate environment variables
+                    populateEnvironmentVariables(imageInfo.environment_variables || []);
+                    
+                    // Populate port mappings
+                    populatePortMappings(imageInfo.exposed_ports || []);
+                })
+                .catch(error => {
+                    console.error('Error fetching image info:', error);
+                    
+                    // Fallback to empty forms with error message
+                    envVarsContainer.innerHTML = `
+                        <div style="color: #f44336; margin-bottom: 10px; font-size: 0.9rem;">
+                            ⚠️ Could not load image information: ${error.message}
+                        </div>
+                        <div class="env-var-row">
+                            <input type="text" placeholder="Variable name" class="env-key">
+                            <input type="text" placeholder="Variable value" class="env-value">
+                            <button type="button" onclick="removeEnvVar(this)">Remove</button>
+                        </div>
+                    `;
+                    
+                    portMappingsContainer.innerHTML = `
+                        <div style="color: #f44336; margin-bottom: 10px; font-size: 0.9rem;">
+                            ⚠️ Could not load image information: ${error.message}
+                        </div>
+                        <div class="port-mapping-row">
+                            <input type="number" placeholder="Container port" class="container-port" min="1" max="65535">
+                            <input type="number" placeholder="Host port (leave empty to use same as container port)" class="host-port" min="1" max="65535">
+                            <select class="protocol">
+                                <option value="tcp">TCP</option>
+                                <option value="udp">UDP</option>
+                            </select>
+                            <button type="button" onclick="removePortMapping(this)">Remove</button>
+                        </div>
+                    `;
+                });
+        }
+
+        function populateEnvironmentVariables(envVars) {
+            const container = document.getElementById('envVars');
+            
+            if (envVars.length === 0) {
+                // No environment variables in image, show empty form
+                container.innerHTML = `
+                    <div style="color: #666; margin-bottom: 10px; font-size: 0.9rem; font-style: italic;">
+                        📝 No environment variables defined in image. Add your own below:
+                    </div>
+                    <div class="env-var-row">
+                        <input type="text" placeholder="Variable name" class="env-key">
+                        <input type="text" placeholder="Variable value" class="env-value">
+                        <button type="button" onclick="removeEnvVar(this)">Remove</button>
+                    </div>
+                `;
+            } else {
+                // Pre-populate with image environment variables
+                let html = `
+                    <div style="color: #667eea; margin-bottom: 10px; font-size: 0.9rem; font-weight: 600;">
+                        🔧 Environment variables from image (you can modify or add more):
+                    </div>
+                `;
+                
+                envVars.forEach(envVar => {
+                    html += `
+                        <div class="env-var-row">
+                            <input type="text" placeholder="Variable name" class="env-key" value="${escapeHtml(envVar.key)}">
+                            <input type="text" placeholder="Variable value" class="env-value" value="${escapeHtml(envVar.value)}">
+                            <button type="button" onclick="removeEnvVar(this)">Remove</button>
+                        </div>
+                    `;
+                });
+                
+                // Add one empty row for additional variables
+                html += `
+                    <div class="env-var-row">
+                        <input type="text" placeholder="Variable name" class="env-key">
+                        <input type="text" placeholder="Variable value" class="env-value">
+                        <button type="button" onclick="removeEnvVar(this)">Remove</button>
+                    </div>
+                `;
+                
+                container.innerHTML = html;
+            }
+        }
+
+        function populatePortMappings(exposedPorts) {
+            const container = document.getElementById('portMappings');
+            
+            if (exposedPorts.length === 0) {
+                // No exposed ports in image, show empty form
+                container.innerHTML = `
+                    <div style="color: #666; margin-bottom: 10px; font-size: 0.9rem; font-style: italic;">
+                        🔌 No ports exposed in image. Add your own port mappings below:
+                    </div>
+                    <div class="port-mapping-row">
+                        <input type="number" placeholder="Container port" class="container-port" min="1" max="65535">
+                        <input type="number" placeholder="Host port (leave empty to use same as container port)" class="host-port" min="1" max="65535">
+                        <select class="protocol">
+                            <option value="tcp">TCP</option>
+                            <option value="udp">UDP</option>
+                        </select>
+                        <button type="button" onclick="removePortMapping(this)">Remove</button>
+                    </div>
+                `;
+            } else {
+                // Pre-populate with exposed ports
+                let html = `
+                    <div style="color: #667eea; margin-bottom: 10px; font-size: 0.9rem; font-weight: 600;">
+                        🔌 Ports exposed by image will be automatically mapped:
+                    </div>
+                    <div style="color: #666; margin-bottom: 15px; font-size: 0.85rem; font-style: italic;">
+                        💡 Host ports will default to the same as container ports if left empty. Specify different host ports if needed.
+                    </div>
+                `;
+                
+                exposedPorts.forEach(port => {
+                    html += `
+                        <div class="port-mapping-row">
+                            <input type="number" placeholder="Container port" class="container-port" min="1" max="65535" value="${port.container_port}" readonly style="background-color: #f5f5f5;">
+                            <input type="number" placeholder="Host port (defaults to ${port.container_port})" class="host-port" min="1" max="65535" value="">
+                            <select class="protocol" disabled style="background-color: #f5f5f5;">
+                                <option value="tcp" ${port.protocol === 'tcp' ? 'selected' : ''}>TCP</option>
+                                <option value="udp" ${port.protocol === 'udp' ? 'selected' : ''}>UDP</option>
+                            </select>
+                            <button type="button" onclick="removePortMapping(this)" title="Remove this port mapping">Remove</button>
+                        </div>
+                    `;
+                });
+                
+                // Add one empty row for additional ports
+                html += `
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
+                        <div style="color: #667eea; margin-bottom: 10px; font-size: 0.9rem; font-weight: 600;">
+                            ➕ Add additional port mappings:
+                        </div>
+                    </div>
+                    <div class="port-mapping-row">
+                        <input type="number" placeholder="Container port" class="container-port" min="1" max="65535">
+                        <input type="number" placeholder="Host port (leave empty to use same as container port)" class="host-port" min="1" max="65535">
+                        <select class="protocol">
+                            <option value="tcp">TCP</option>
+                            <option value="udp">UDP</option>
+                        </select>
+                        <button type="button" onclick="removePortMapping(this)">Remove</button>
+                    </div>
+                `;
+                
+                container.innerHTML = html;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function hideAdvancedForm() {
+            document.getElementById('advancedModal').style.display = 'none';
+        }
+
+        function addEnvVar() {
+            const container = document.getElementById('envVars');
+            const newRow = document.createElement('div');
+            newRow.className = 'env-var-row';
+            newRow.innerHTML = `
+                <input type="text" placeholder="Variable name" class="env-key">
+                <input type="text" placeholder="Variable value" class="env-value">
+                <button type="button" onclick="removeEnvVar(this)">Remove</button>
+            `;
+            container.appendChild(newRow);
+        }
+
+        function removeEnvVar(button) {
+            const container = document.getElementById('envVars');
+            if (container.children.length > 1) {
+                button.parentElement.remove();
+            }
+        }
+
+        function addPortMapping() {
+            const container = document.getElementById('portMappings');
+            const newRow = document.createElement('div');
+            newRow.className = 'port-mapping-row';
+            newRow.innerHTML = `
+                <input type="number" placeholder="Container port" class="container-port" min="1" max="65535">
+                <input type="number" placeholder="Host port (leave empty to use same as container port)" class="host-port" min="1" max="65535">
+                <select class="protocol">
+                    <option value="tcp">TCP</option>
+                    <option value="udp">UDP</option>
+                </select>
+                <button type="button" onclick="removePortMapping(this)">Remove</button>
+            `;
+            container.appendChild(newRow);
+        }
+
+        function removePortMapping(button) {
+            const container = document.getElementById('portMappings');
+            if (container.children.length > 1) {
+                button.parentElement.remove();
+            }
+        }
+
+        // Handle form submission
+        document.getElementById('advancedForm').addEventListener('submit', function(e) {
+            // Collect environment variables
+            const envVars = [];
+            document.querySelectorAll('.env-var-row').forEach(row => {
+                const key = row.querySelector('.env-key').value.trim();
+                const value = row.querySelector('.env-value').value.trim();
+                if (key && value) {
+                    envVars.push({ key, value });
+                }
+            });
+            document.getElementById('environmentVariables').value = JSON.stringify(envVars);
+
+            // Collect port mappings
+            const portMappings = [];
+            document.querySelectorAll('.port-mapping-row').forEach(row => {
+                const containerPort = parseInt(row.querySelector('.container-port').value);
+                const hostPortValue = row.querySelector('.host-port').value.trim();
+                const hostPort = hostPortValue ? parseInt(hostPortValue) : null;
+                const protocolSelect = row.querySelector('.protocol');
+                const protocol = protocolSelect.value;
+                
+                if (containerPort && !isNaN(containerPort)) {
+                    portMappings.push({
+                        container_port: containerPort,
+                        host_port: hostPort,
+                        protocol: protocol
+                    });
+                }
+            });
+            document.getElementById('portMappingsData').value = JSON.stringify(portMappings);
+        });
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('advancedModal');
+            if (event.target === modal) {
+                hideAdvancedForm();
             }
         }
     </script>

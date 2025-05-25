@@ -11,15 +11,25 @@ use std::sync::Arc;
 use html_escape;
 use tower_http::services::ServeDir;
 use futures_util::stream::StreamExt;
+use urlencoding;
 
 use crate::config::Config;
 use crate::docker;
-use crate::models::{ContainerSummary, LocalImageSummary};
+use crate::models::{ContainerSummary, LocalImageSummary, CreateContainerRequest, EnvironmentVariable, ContainerPortMapping};
 use crate::auth::{SessionStore, LoginForm};
 
 #[derive(Deserialize)]
 pub struct StartImageParams {
     image_name: String,
+}
+
+#[derive(Deserialize)]
+pub struct EnhancedStartImageParams {
+    image_name: String,
+    container_name: Option<String>,
+    environment_variables: Option<String>, // JSON string of environment variables
+    port_mappings: Option<String>, // JSON string of port mappings
+    restart_policy: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -172,12 +182,13 @@ fn generate_image_rows(images: &[LocalImageSummary]) -> String {
         let display_tag = image.repo_tags.get(0).map_or("N/A", |s| s.as_str());
         let actions = format!(r#"
             <div class="actions">
-                <form action="/start-image" method="post">
+                <form action="/start-image" method="post" style="display: inline;">
                     <input type="hidden" name="image_name" value="{}">
-                    <button class="btn btn-start" type="submit">🚀 Start New Container</button>
+                    <button class="btn btn-start" type="submit">🚀 Quick Start</button>
                 </form>
+                <button class="btn btn-configure" onclick="showAdvancedForm('{}')">⚙️ Configure & Start</button>
             </div>
-        "#, html_escape::encode_text(display_tag));
+        "#, html_escape::encode_text(display_tag), html_escape::encode_text(display_tag));
 
         rows_html.push_str(&format!(r#"
             <tr>
@@ -478,6 +489,76 @@ fn extract_session_id(cookie_str: &str) -> Option<String> {
     None
 }
 
+async fn start_image_enhanced_handler(State(_state): State<Arc<AppState>>, Form(params): Form<EnhancedStartImageParams>) -> impl IntoResponse {
+    // Parse environment variables from JSON string
+    let environment_variables = if let Some(env_str) = &params.environment_variables {
+        if env_str.trim().is_empty() {
+            Vec::new()
+        } else {
+            match serde_json::from_str::<Vec<EnvironmentVariable>>(env_str) {
+                Ok(vars) => vars,
+                Err(e) => {
+                    tracing::error!("Failed to parse environment variables: {}", e);
+                    return Html(format!("Error parsing environment variables: {}. <a href=\"/\">Go back</a>", e)).into_response();
+                }
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
+    // Parse port mappings from JSON string
+    let port_mappings = if let Some(ports_str) = &params.port_mappings {
+        if ports_str.trim().is_empty() {
+            Vec::new()
+        } else {
+            match serde_json::from_str::<Vec<ContainerPortMapping>>(ports_str) {
+                Ok(ports) => ports,
+                Err(e) => {
+                    tracing::error!("Failed to parse port mappings: {}", e);
+                    return Html(format!("Error parsing port mappings: {}. <a href=\"/\">Go back</a>", e)).into_response();
+                }
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
+    let request = CreateContainerRequest {
+        image_name: params.image_name.clone(),
+        container_name: params.container_name.filter(|s| !s.trim().is_empty()),
+        environment_variables,
+        port_mappings,
+        restart_policy: params.restart_policy.filter(|s| !s.trim().is_empty()),
+    };
+
+    match docker::create_and_start_container_enhanced(request).await {
+        Ok(container_id) => {
+            tracing::info!("Successfully created and started container {} from image {}", container_id, params.image_name);
+            Redirect::to("/").into_response()
+        },
+        Err(e) => {
+            tracing::error!("Failed to start container from image {}: {}", params.image_name, e);
+            Html(format!("Error starting container from image {}: {}. <a href=\"/\">Go back</a>", html_escape::encode_text(&params.image_name), e)).into_response()
+        }
+    }
+}
+
+async fn image_info_handler(Path(image_name): Path<String>) -> impl IntoResponse {
+    // URL decode the image name (in case it contains special characters like :)
+    let decoded_image_name = urlencoding::decode(&image_name)
+        .map_err(|e| format!("Invalid image name encoding: {}", e))
+        .unwrap_or_else(|_| std::borrow::Cow::Borrowed(&image_name));
+    
+    match docker::get_image_info(&decoded_image_name).await {
+        Ok(image_info) => Json(image_info).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to get image info for {}: {}", decoded_image_name, e);
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Error getting image info: {}", e)).into_response()
+        }
+    }
+}
+
 pub fn app_router(config: &Config) -> Router {
     let state = Arc::new(AppState {
         config: config.clone(),
@@ -489,6 +570,7 @@ pub fn app_router(config: &Config) -> Router {
         .route("/health", get(health_handler))
         .route("/ready", get(readiness_handler))
         .route("/api/config", get(config_handler))
+        .route("/api/image/:image_name", get(image_info_handler))
         .route("/start-image", post(start_image_handler))
         .route("/start/:id", post(start_container_handler))
         .route("/stop/:id", post(stop_container_handler))
@@ -500,6 +582,7 @@ pub fn app_router(config: &Config) -> Router {
         .route("/login", get(login_handler_wrapper))
         .route("/login", post(login_post_handler_wrapper))
         .route("/logout", post(logout_handler_wrapper))
+        .route("/start-image-enhanced", post(start_image_enhanced_handler))
         .nest_service("/static", ServeDir::new("static"))
         .layer(middleware::from_fn_with_state(
             state.session_store.clone(),
