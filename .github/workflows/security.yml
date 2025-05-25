@@ -37,8 +37,8 @@ jobs:
 
       - name: Install security tools
         run: |
-          cargo install cargo-audit --locked
-          cargo install cargo-deny --locked
+          cargo install cargo-audit --locked --force
+          cargo install cargo-deny --locked --force
 
       - name: Run cargo audit
         run: cargo audit
