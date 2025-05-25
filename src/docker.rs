@@ -14,6 +14,14 @@ use chrono::Utc;
 use futures_util::stream::StreamExt;
 use super::models::{ContainerSummary, LocalImageSummary, ContainerMetrics, SystemMetrics, MetricsResponse};
 
+/// Get a Docker client with optional custom socket configuration
+fn get_docker_client(socket_path: Option<&str>) -> Result<Docker, bollard::errors::Error> {
+    match socket_path {
+        Some(path) => Docker::connect_with_socket(path, 120, bollard::API_DEFAULT_VERSION),
+        None => Docker::connect_with_local_defaults(),
+    }
+}
+
 fn is_image_id(image_name: &str) -> bool {
     // Simple check: a common image ID is a 64-character hex string, or prefixed with sha256:
     (image_name.len() == 64 && image_name.chars().all(|c| c.is_ascii_hexdigit())) || 
@@ -23,7 +31,11 @@ fn is_image_id(image_name: &str) -> bool {
 
 // Returns only RUNNING containers
 pub async fn list_running_containers() -> Result<Vec<ContainerSummary>, bollard::errors::Error> {
-    let docker = Docker::connect_with_local_defaults()?;
+    list_running_containers_with_config(None).await
+}
+
+pub async fn list_running_containers_with_config(socket_path: Option<&str>) -> Result<Vec<ContainerSummary>, bollard::errors::Error> {
+    let docker = get_docker_client(socket_path)?;
     let options = Some(ListContainersOptions::<String> {
         all: false, // Only running
         filters: std::collections::HashMap::from([("status".to_string(), vec!["running".to_string()])]),
@@ -51,7 +63,11 @@ pub async fn list_running_containers() -> Result<Vec<ContainerSummary>, bollard:
 }
 
 pub async fn list_downloaded_images() -> Result<Vec<LocalImageSummary>, bollard::errors::Error> {
-    let docker = Docker::connect_with_local_defaults()?;
+    list_downloaded_images_with_config(None).await
+}
+
+pub async fn list_downloaded_images_with_config(socket_path: Option<&str>) -> Result<Vec<LocalImageSummary>, bollard::errors::Error> {
+    let docker = get_docker_client(socket_path)?;
     let options = Some(ListImagesOptions::<String> {
         all: false, // Set to true if you want intermediate layers too
         digests: false,

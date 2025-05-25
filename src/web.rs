@@ -5,20 +5,37 @@ use axum::{
     Router, Json,
     http::StatusCode,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use html_escape;
 use tower_http::services::ServeDir;
 
+use crate::config::Config;
 use crate::docker;
-use crate::models::{ContainerSummary, LocalImageSummary, MetricsResponse};
+use crate::models::{ContainerSummary, LocalImageSummary};
 
 #[derive(Deserialize)]
 pub struct StartImageParams {
     image_name: String,
 }
 
-struct AppState {}
+#[derive(Serialize)]
+pub struct HealthResponse {
+    status: String,
+    version: String,
+    docker_available: bool,
+    timestamp: String,
+}
+
+#[derive(Serialize)]
+pub struct ConfigResponse {
+    metrics_interval_seconds: u64,
+    metrics_history_limit: usize,
+}
+
+struct AppState {
+    config: Config,
+}
 
 fn get_status_class(status: &str) -> &'static str {
     match status.to_lowercase().as_str() {
@@ -90,9 +107,10 @@ fn generate_image_rows(images: &[LocalImageSummary]) -> String {
     rows_html
 }
 
-async fn index_handler(State(_state): State<Arc<AppState>>) -> impl IntoResponse {
-    let running_containers_result = docker::list_running_containers().await;
-    let downloaded_images_result = docker::list_downloaded_images().await;
+async fn index_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let docker_socket = state.config.docker_socket.as_deref();
+    let running_containers_result = crate::docker::list_running_containers_with_config(docker_socket).await;
+    let downloaded_images_result = crate::docker::list_downloaded_images_with_config(docker_socket).await;
 
     // Load the template
     let template = include_str!("../templates/management.html");
@@ -162,10 +180,53 @@ async fn metrics_dashboard_handler() -> impl IntoResponse {
     Html(include_str!("../templates/dashboard.html"))
 }
 
-pub fn app_router() -> Router {
-    let state = Arc::new(AppState {});
+async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let docker_socket = state.config.docker_socket.as_deref();
+    let docker_available = match crate::docker::list_running_containers_with_config(docker_socket).await {
+        Ok(_) => true,
+        Err(_) => false,
+    };
+
+    let health = HealthResponse {
+        status: if docker_available { "healthy".to_string() } else { "unhealthy".to_string() },
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        docker_available,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    };
+
+    let status_code = if docker_available {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    (status_code, Json(health))
+}
+
+async fn readiness_handler() -> impl IntoResponse {
+    // Simple readiness check - just verify we can respond
+    Json(serde_json::json!({
+        "status": "ready",
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    }))
+}
+
+async fn config_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(ConfigResponse {
+        metrics_interval_seconds: state.config.metrics_interval_seconds,
+        metrics_history_limit: state.config.metrics_history_limit,
+    })
+}
+
+pub fn app_router(config: &Config) -> Router {
+    let state = Arc::new(AppState {
+        config: config.clone(),
+    });
     Router::new()
         .route("/", get(index_handler))
+        .route("/health", get(health_handler))
+        .route("/ready", get(readiness_handler))
+        .route("/api/config", get(config_handler))
         .route("/start-image", post(start_image_handler))
         .route("/start/:id", post(start_container_handler))
         .route("/stop/:id", post(stop_container_handler))

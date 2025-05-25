@@ -1,5 +1,21 @@
 let charts = {};
 let metricsHistory = [];
+let config = {
+  metrics_interval_seconds: 5,
+  metrics_history_limit: 20,
+};
+
+async function fetchConfig() {
+  try {
+    const response = await fetch("/api/config");
+    if (!response.ok) throw new Error("Failed to fetch config");
+    const fetchedConfig = await response.json();
+    config = { ...config, ...fetchedConfig };
+    console.log("Configuration loaded:", config);
+  } catch (error) {
+    console.warn("Failed to load configuration, using defaults:", error);
+  }
+}
 
 async function fetchMetrics() {
   try {
@@ -46,39 +62,43 @@ function updateSystemStats(systemMetrics) {
 }
 
 function updateContainerList(containers) {
-  const listContainer = document.getElementById("containerList");
+  const containerList = document.getElementById("containerList");
+
   if (containers.length === 0) {
-    listContainer.innerHTML =
-      '<p style="text-align: center; color: #666; padding: 20px;">No running containers</p>';
+    containerList.innerHTML =
+      '<div class="empty-state">No running containers with metrics available</div>';
     return;
   }
 
-  listContainer.innerHTML = containers
-    .map(
-      (container) => `
-        <div class="container-item">
-            <div>
-                <div class="container-name">${container.container_name}</div>
-                <div style="font-size: 0.8rem; color: #666; margin-top: 4px;">${container.container_id.substring(
-                  0,
-                  12
-                )}</div>
-            </div>
-            <div class="container-metrics">
-                <span class="metric-badge cpu-badge">CPU: ${container.cpu_usage_percent.toFixed(
-                  1
-                )}%</span>
-                <span class="metric-badge memory-badge">MEM: ${container.memory_usage_mb.toFixed(
-                  0
-                )}MB (${container.memory_usage_percent.toFixed(1)}%)</span>
-                <span class="metric-badge network-badge">NET: ↓${formatBytes(
-                  container.network_rx_bytes
-                )} ↑${formatBytes(container.network_tx_bytes)}</span>
-            </div>
+  let html = "";
+  containers.forEach((container) => {
+    html += `
+      <div class="container-item">
+        <div>
+          <div class="container-name">${container.container_name}</div>
+          <div class="container-metrics">
+            <span class="metric-badge cpu-badge">CPU: ${container.cpu_usage_percent.toFixed(
+              1
+            )}%</span>
+            <span class="metric-badge memory-badge">Memory: ${container.memory_usage_mb.toFixed(
+              0
+            )} MB</span>
+            <span class="metric-badge network-badge">Network: ↓${formatBytes(
+              container.network_rx_bytes
+            )} ↑${formatBytes(container.network_tx_bytes)}</span>
+          </div>
         </div>
-    `
-    )
-    .join("");
+        <div style="font-size: 0.9rem; color: #666;">
+          PIDs: ${container.pids} | 
+          Disk: R:${formatBytes(container.block_read_bytes)} W:${formatBytes(
+      container.block_write_bytes
+    )}
+        </div>
+      </div>
+    `;
+  });
+
+  containerList.innerHTML = html;
 }
 
 function initializeCharts() {
@@ -190,8 +210,8 @@ function initializeCharts() {
 function updateCharts(containers) {
   const now = new Date().toLocaleTimeString();
 
-  // Limit history to last 20 points
-  if (metricsHistory.length >= 20) {
+  // Use configurable history limit
+  if (metricsHistory.length >= config.metrics_history_limit) {
     metricsHistory.shift();
   }
   metricsHistory.push({ time: now, containers });
@@ -317,9 +337,16 @@ async function updateDashboard() {
 
 // Initialize the dashboard
 document.addEventListener("DOMContentLoaded", async () => {
+  // Load configuration first
+  await fetchConfig();
+
   initializeCharts();
   await updateDashboard();
 
-  // Update every 5 seconds
-  setInterval(updateDashboard, 5000);
+  // Use configurable update interval (convert seconds to milliseconds)
+  const intervalMs = config.metrics_interval_seconds * 1000;
+  console.log(
+    `Setting update interval to ${config.metrics_interval_seconds} seconds`
+  );
+  setInterval(updateDashboard, intervalMs);
 });
