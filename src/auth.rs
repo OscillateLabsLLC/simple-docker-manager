@@ -16,10 +16,12 @@ use uuid::Uuid;
 
 use crate::config::Config;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Session {
+    #[allow(dead_code)]
     pub user_id: String,
     pub username: String,
+    #[allow(dead_code)]
     pub created_at: SystemTime,
     pub last_accessed: SystemTime,
 }
@@ -94,6 +96,7 @@ impl SessionStore {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn cleanup_expired_sessions(&self) {
         let mut sessions = self.sessions.write().await;
         let now = SystemTime::now();
@@ -159,6 +162,7 @@ pub async fn auth_middleware(
     }
 }
 
+#[allow(dead_code)]
 pub async fn login_handler(State(session_store): State<Arc<SessionStore>>) -> impl IntoResponse {
     // If auth is disabled, redirect to main page
     if !session_store.config.auth_enabled {
@@ -168,6 +172,7 @@ pub async fn login_handler(State(session_store): State<Arc<SessionStore>>) -> im
     Html(LOGIN_TEMPLATE).into_response()
 }
 
+#[allow(dead_code)]
 pub async fn login_post_handler(
     State(session_store): State<Arc<SessionStore>>,
     Form(form): Form<LoginForm>,
@@ -208,6 +213,7 @@ pub async fn login_post_handler(
     }
 }
 
+#[allow(dead_code)]
 pub async fn logout_handler(
     State(session_store): State<Arc<SessionStore>>,
     headers: HeaderMap,

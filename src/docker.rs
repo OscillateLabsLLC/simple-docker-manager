@@ -59,7 +59,7 @@ pub async fn list_running_containers_with_config(
         let container_name = container
             .names
             .unwrap_or_default()
-            .get(0)
+            .first()
             .unwrap_or(&"".to_string())
             .trim_start_matches('/')
             .to_string();
@@ -146,6 +146,7 @@ pub async fn list_running_containers_with_config(
     Ok(detailed_containers)
 }
 
+#[allow(dead_code)]
 pub async fn list_downloaded_images() -> Result<Vec<LocalImageSummary>, bollard::errors::Error> {
     list_downloaded_images_with_config(None).await
 }
@@ -370,6 +371,7 @@ pub async fn restart_container(container_id_or_name: &str) -> Result<(), bollard
         .await
 }
 
+#[allow(dead_code)]
 pub async fn get_container_metrics(
     container_id: &str,
 ) -> Result<Option<ContainerMetrics>, bollard::errors::Error> {
@@ -430,7 +432,7 @@ pub async fn get_container_metrics_with_config(
         // Network stats
         let (network_rx_bytes, network_tx_bytes) = if let Some(networks) = &stats.networks {
             let (mut rx_total, mut tx_total) = (0u64, 0u64);
-            for (_interface, network_stats) in networks {
+            for network_stats in networks.values() {
                 rx_total += network_stats.rx_bytes;
                 tx_total += network_stats.tx_bytes;
             }
@@ -481,6 +483,7 @@ pub async fn get_container_metrics_with_config(
     }
 }
 
+#[allow(dead_code)]
 pub async fn get_system_metrics() -> Result<SystemMetrics, bollard::errors::Error> {
     get_system_metrics_with_config(None).await
 }
@@ -532,6 +535,7 @@ pub async fn get_system_metrics_with_config(
     })
 }
 
+#[allow(dead_code)]
 pub async fn get_all_metrics() -> Result<MetricsResponse, bollard::errors::Error> {
     get_all_metrics_with_config(None).await
 }

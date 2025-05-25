@@ -36,6 +36,7 @@ pub struct Config {
 
     /// Graceful shutdown timeout in seconds
     #[serde(default = "default_shutdown_timeout")]
+    #[allow(dead_code)]
     pub shutdown_timeout_seconds: u64,
 
     /// Authentication settings

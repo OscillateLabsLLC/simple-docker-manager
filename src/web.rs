@@ -10,11 +10,9 @@ use axum::{
     Json, Router,
 };
 use futures_util::stream::StreamExt;
-use html_escape;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tower_http::services::ServeDir;
-use urlencoding;
 
 use crate::auth::{LoginForm, SessionStore};
 use crate::config::Config;
@@ -203,7 +201,7 @@ fn generate_image_rows(images: &[LocalImageSummary]) -> String {
 
     let mut rows_html = String::new();
     for image in images {
-        let display_tag = image.repo_tags.get(0).map_or("N/A", |s| s.as_str());
+        let display_tag = image.repo_tags.first().map_or("N/A", |s| s.as_str());
         let actions = format!(
             r#"
             <div class="actions">
@@ -360,11 +358,9 @@ async fn metrics_dashboard_handler(State(state): State<Arc<AppState>>) -> impl I
 
 async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let docker_socket = state.config.docker_socket.as_deref();
-    let docker_available =
-        match crate::docker::list_running_containers_with_config(docker_socket).await {
-            Ok(_) => true,
-            Err(_) => false,
-        };
+    let docker_available = crate::docker::list_running_containers_with_config(docker_socket)
+        .await
+        .is_ok();
 
     let health = HealthResponse {
         status: if docker_available {
@@ -472,10 +468,8 @@ async fn logs_websocket(mut socket: WebSocket, container_id: String) {
                 let log_text = String::from_utf8_lossy(&log_output.into_bytes())
                     .trim()
                     .to_string();
-                if !log_text.is_empty() {
-                    if socket.send(Message::Text(log_text)).await.is_err() {
-                        break;
-                    }
+                if !log_text.is_empty() && socket.send(Message::Text(log_text)).await.is_err() {
+                    break;
                 }
             }
             Err(e) => {
