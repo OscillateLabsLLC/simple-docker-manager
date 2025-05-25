@@ -1,15 +1,17 @@
 use axum::{
-    extract::{Path, Query, State, Form},
+    extract::{Path, State, Form},
     response::{Html, IntoResponse, Redirect},
     routing::{get, post},
-    Router,
+    Router, Json,
+    http::StatusCode,
 };
 use serde::Deserialize;
 use std::sync::Arc;
 use html_escape;
+use tower_http::services::ServeDir;
 
 use crate::docker;
-use crate::models::{ContainerSummary, LocalImageSummary};
+use crate::models::{ContainerSummary, LocalImageSummary, MetricsResponse};
 
 #[derive(Deserialize)]
 pub struct StartImageParams {
@@ -27,47 +29,63 @@ fn get_status_class(status: &str) -> &'static str {
 }
 
 fn generate_running_container_rows(containers: &[ContainerSummary]) -> String {
+    if containers.is_empty() {
+        return r#"<tr><td colspan="4"><div class="empty-state">No running containers found</div></td></tr>"#.to_string();
+    }
+
     let mut rows_html = String::new();
     for container in containers {
         let status_class = get_status_class(&container.status);
-        let actions = format!("
-            <form action=\"/stop/{}\" method=\"post\"><button class=\"stop-button\" type=\"submit\">Stop</button></form>
-            <form action=\"/restart/{}\" method=\"post\"><button class=\"restart-button\" type=\"submit\">Restart</button></form>
-        ", container.id, container.id);
+        let actions = format!(r#"
+            <div class="actions">
+                <form action="/stop/{}" method="post">
+                    <button class="btn btn-stop" type="submit">🛑 Stop</button>
+                </form>
+                <form action="/restart/{}" method="post">
+                    <button class="btn btn-restart" type="submit">🔄 Restart</button>
+                </form>
+            </div>
+        "#, container.id, container.id);
 
-        rows_html.push_str(&format!("
+        rows_html.push_str(&format!(r#"
             <tr>
                 <td>{}</td>
                 <td>{}</td>
-                <td><span class=\"{}\">{}</span></td>
-                <td class=\"actions\">
+                <td><span class="{}">{}</span></td>
+                <td>
                     {}
                 </td>
             </tr>
-        ", container.name, container.image, status_class, container.status, actions));
+        "#, container.name, container.image, status_class, container.status, actions));
     }
     rows_html
 }
 
 fn generate_image_rows(images: &[LocalImageSummary]) -> String {
+    if images.is_empty() {
+        return r#"<tr><td colspan="2"><div class="empty-state">No downloaded images found</div></td></tr>"#.to_string();
+    }
+
     let mut rows_html = String::new();
     for image in images {
         let display_tag = image.repo_tags.get(0).map_or("N/A", |s| s.as_str());
-        let actions = format!("
-            <form action=\"/start-image\" method=\"post\">
-                <input type=\"hidden\" name=\"image_name\" value=\"{}\">
-                <button class=\"start-button\" type=\"submit\">Start New Container</button>
-            </form>
-        ", html_escape::encode_text(display_tag));
+        let actions = format!(r#"
+            <div class="actions">
+                <form action="/start-image" method="post">
+                    <input type="hidden" name="image_name" value="{}">
+                    <button class="btn btn-start" type="submit">🚀 Start New Container</button>
+                </form>
+            </div>
+        "#, html_escape::encode_text(display_tag));
 
-        rows_html.push_str(&format!("
+        rows_html.push_str(&format!(r#"
             <tr>
                 <td>{}</td>
-                <td class=\"actions\">
+                <td>
                     {}
                 </td>
             </tr>
-        ", html_escape::encode_text(display_tag), actions));
+        "#, html_escape::encode_text(display_tag), actions));
     }
     rows_html
 }
@@ -76,101 +94,26 @@ async fn index_handler(State(_state): State<Arc<AppState>>) -> impl IntoResponse
     let running_containers_result = docker::list_running_containers().await;
     let downloaded_images_result = docker::list_downloaded_images().await;
 
-    let mut html_output = String::from("
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Docker Manager</title>
-            <style>
-                body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
-                h1, h2 { color: #005A9C; }
-                table { width: 100%; border-collapse: collapse; margin-top: 20px; margin-bottom: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-                th, td { padding: 10px; border: 1px solid #ddd; text-align: left; }
-                th { background-color: #007ACC; color: white; }
-                tr:nth-child(even) { background-color: #eef; }
-                tr:hover { background-color: #ddd; }
-                .actions form { display: inline-block; margin-right: 5px; }
-                .actions button { 
-                    padding: 8px 12px; 
-                    border: none; 
-                    border-radius: 4px; 
-                    cursor: pointer; 
-                    font-weight: bold;
-                    transition: background-color 0.3s ease;
-                }
-                .start-button { background-color: #28a745; color: white; }
-                .start-button:hover { background-color: #218838; }
-                .stop-button { background-color: #dc3545; color: white; }
-                .stop-button:hover { background-color: #c82333; }
-                .restart-button { background-color: #ffc107; color: #333; }
-                .restart-button:hover { background-color: #e0a800; }
-                .status-running { color: green; font-weight: bold; }
-                .status-exited { color: red; font-weight: bold; }
-                .status-other { color: orange; font-weight: bold; }
-                .error-message { color: red; font-style: italic; margin-top: 10px; }
-            </style>
-        </head>
-        <body>
-            <h1>Docker Container Management</h1>
-    ");
+    // Load the template
+    let template = include_str!("../templates/management.html");
 
-    // Running Containers Section
-    html_output.push_str("
-        <h2>Running Containers</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Image</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-    ");
-    match running_containers_result {
-        Ok(containers) => {
-            if containers.is_empty() {
-                html_output.push_str("<tr><td colspan=\"4\">No running containers found.</td></tr>");
-            } else {
-                html_output.push_str(&generate_running_container_rows(&containers));
-            }
-        }
-        Err(e) => html_output.push_str(&format!("<tr><td colspan=\"4\" class=\"error-message\">Error listing running containers: {}</td></tr>", e)),
-    }
-    html_output.push_str("
-            </tbody>
-        </table>
-    ");
+    // Generate running containers rows
+    let running_containers_rows = match running_containers_result {
+        Ok(containers) => generate_running_container_rows(&containers),
+        Err(e) => format!(r#"<tr><td colspan="4"><div class="error-message">Error listing running containers: {}</div></td></tr>"#, e),
+    };
 
-    // Available Images Section
-    html_output.push_str("
-        <h2>Available Images (to start new containers)</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Image Tag</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-    ");
-    match downloaded_images_result {
-        Ok(images) => {
-            if images.is_empty() {
-                html_output.push_str("<tr><td colspan=\"2\">No downloaded images found.</td></tr>");
-            } else {
-                html_output.push_str(&generate_image_rows(&images));
-            }
-        }
-        Err(e) => html_output.push_str(&format!("<tr><td colspan=\"2\" class=\"error-message\">Error listing images: {}</td></tr>", e)),
-    }
-    html_output.push_str("
-            </tbody>
-        </table>
-        </body>
-        </html>
-    ");
+    // Generate image rows
+    let image_rows = match downloaded_images_result {
+        Ok(images) => generate_image_rows(&images),
+        Err(e) => format!(r#"<tr><td colspan="2"><div class="error-message">Error listing images: {}</div></td></tr>"#, e),
+    };
+
+    // Replace placeholders in template
+    let html_output = template
+        .replace("{{RUNNING_CONTAINERS_ROWS}}", &running_containers_rows)
+        .replace("{{IMAGE_ROWS}}", &image_rows);
+
     Html(html_output)
 }
 
@@ -205,6 +148,20 @@ async fn restart_container_handler(Path(container_id): Path<String>) -> impl Int
     }
 }
 
+async fn metrics_json_handler() -> impl IntoResponse {
+    match docker::get_all_metrics().await {
+        Ok(metrics) => Json(metrics).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to get metrics: {}", e);
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Error getting metrics: {}", e)).into_response()
+        }
+    }
+}
+
+async fn metrics_dashboard_handler() -> impl IntoResponse {
+    Html(include_str!("../templates/dashboard.html"))
+}
+
 pub fn app_router() -> Router {
     let state = Arc::new(AppState {});
     Router::new()
@@ -213,5 +170,8 @@ pub fn app_router() -> Router {
         .route("/start/:id", post(start_container_handler))
         .route("/stop/:id", post(stop_container_handler))
         .route("/restart/:id", post(restart_container_handler))
+        .route("/metrics", get(metrics_dashboard_handler))
+        .route("/api/metrics", get(metrics_json_handler))
+        .nest_service("/static", ServeDir::new("static"))
         .with_state(state)
 } 

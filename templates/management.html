@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Docker Container Management</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🐳 Docker Container Management</h1>
+            <p>Manage your Docker containers with ease</p>
+        </div>
+        
+        <div class="nav-links">
+            <a href="/">🏠 Management</a>
+            <a href="/metrics">📊 Dashboard</a>
+            <a href="/api/metrics">🔗 JSON API</a>
+        </div>
+
+        <div class="section-card">
+            <h2 class="section-title running">Running Containers</h2>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Image</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{RUNNING_CONTAINERS_ROWS}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="section-card">
+            <h2 class="section-title images">Available Images (to start new containers)</h2>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Image Tag</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{IMAGE_ROWS}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</body>
+</html> 

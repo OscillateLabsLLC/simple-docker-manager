@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Docker Metrics Dashboard</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🐳 Docker Metrics Dashboard</h1>
+            <p>Real-time container monitoring and resource usage</p>
+        </div>
+        
+        <div class="nav-links">
+            <a href="/">🏠 Management</a>
+            <a href="/metrics">📊 Dashboard</a>
+            <a href="/api/metrics">🔗 JSON API</a>
+        </div>
+
+        <div id="loading" class="loading">
+            Loading metrics data...
+        </div>
+
+        <div id="dashboard" style="display: none;">
+            <div class="system-overview">
+                <h2 style="color: #667eea; margin-bottom: 20px;">🖥️ System Overview</h2>
+                <div class="system-stats" id="systemStats">
+                    <!-- System stats will be populated here -->
+                </div>
+            </div>
+
+            <div class="dashboard-grid">
+                <div class="metric-card">
+                    <h3>CPU Usage</h3>
+                    <div class="chart-container">
+                        <canvas id="cpuChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <h3>Memory Usage</h3>
+                    <div class="chart-container">
+                        <canvas id="memoryChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <h3>Network I/O</h3>
+                    <div class="chart-container">
+                        <canvas id="networkChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <h3>Disk I/O</h3>
+                    <div class="chart-container">
+                        <canvas id="diskChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="container-list">
+                <h2 style="color: #667eea; margin-bottom: 20px;">📦 Container Details</h2>
+                <div id="containerList">
+                    <!-- Container list will be populated here -->
+                </div>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <script src="/static/dashboard.js"></script>
+</body>
+</html> 
