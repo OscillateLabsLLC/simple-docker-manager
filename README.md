@@ -97,6 +97,198 @@ A beautiful, lightweight Docker container management service built with Rust, fe
 5. **Open your browser**
    Navigate to `http://localhost:3000` (or your configured port)
 
+## 🐳 Docker Deployment
+
+The Simple Docker Manager can be easily deployed using Docker with a minimal, statically-compiled container based on scratch for maximum security and efficiency.
+
+### 🏗️ Building the Docker Image
+
+#### Option 1: Using the Build Script (Recommended)
+
+```bash
+# Build with default settings
+./docker-build.sh
+
+# Build and run immediately
+./docker-build.sh --run
+
+# Build with custom tag
+./docker-build.sh --tag v1.0.0
+
+# Build and push to registry
+./docker-build.sh --registry ghcr.io/yourusername --push
+
+# Build without cache
+./docker-build.sh --no-cache
+
+# See all options
+./docker-build.sh --help
+```
+
+#### Option 2: Manual Docker Build
+
+```bash
+# Build the image
+docker build -t simple-docker-manager:latest .
+
+# Run the container
+docker run -d \
+  --name simple-docker-manager \
+  -p 3000:3000 \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  --restart unless-stopped \
+  simple-docker-manager:latest
+```
+
+### 🐙 Using Docker Compose
+
+The easiest way to deploy is using Docker Compose:
+
+```bash
+# Start the service
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the service
+docker-compose down
+
+# Rebuild and restart
+docker-compose up -d --build
+```
+
+### 🏷️ Container Features
+
+- **Minimal Size**: Built on `scratch` base image for maximum security and minimal attack surface
+- **Static Binary**: Fully statically linked Rust binary with no runtime dependencies
+- **OCI Labels**: Comprehensive metadata for better container registry UX
+- **Health Endpoints**: Built-in `/health` and `/ready` endpoints for monitoring
+- **Proper Shutdown**: Graceful handling of termination signals
+
+### 🔧 Container Configuration
+
+Configure the container using environment variables:
+
+```bash
+docker run -d \
+  --name simple-docker-manager \
+  -p 3000:3000 \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e SDM_LOG_LEVEL=debug \
+  -e SDM_METRICS_INTERVAL_SECONDS=10 \
+  -e SDM_PORT=3000 \
+  --restart unless-stopped \
+  simple-docker-manager:latest
+```
+
+### 🌐 Production Deployment
+
+For production environments, consider:
+
+#### Kubernetes Deployment
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: simple-docker-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: simple-docker-manager
+  template:
+    metadata:
+      labels:
+        app: simple-docker-manager
+    spec:
+      containers:
+        - name: simple-docker-manager
+          image: simple-docker-manager:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: SDM_LOG_LEVEL
+              value: "info"
+            - name: SDM_METRICS_INTERVAL_SECONDS
+              value: "5"
+          volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: simple-docker-manager
+spec:
+  selector:
+    app: simple-docker-manager
+  ports:
+    - port: 80
+      targetPort: 3000
+  type: LoadBalancer
+```
+
+#### Docker Swarm
+
+```bash
+docker service create \
+  --name simple-docker-manager \
+  --publish 3000:3000 \
+  --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock,readonly \
+  --env SDM_LOG_LEVEL=info \
+  --replicas 1 \
+  simple-docker-manager:latest
+```
+
+### 🔍 Health Monitoring
+
+The container exposes health endpoints for monitoring:
+
+```bash
+# Health check (includes Docker connectivity)
+curl http://localhost:3000/health
+
+# Readiness check (service is ready to handle requests)
+curl http://localhost:3000/ready
+
+# View container logs
+docker logs -f simple-docker-manager
+```
+
+### 🚨 Security Considerations
+
+- **Read-only Docker socket**: The container mounts Docker socket as read-only by default
+- **Non-root execution**: The application runs as a non-root user within the container
+- **Minimal attack surface**: Scratch base image contains no shell, package manager, or unnecessary utilities
+- **Network isolation**: Use Docker networks to isolate the container if needed
+
+### 📦 Image Details
+
+- **Base Image**: `scratch` (minimal, security-focused)
+- **Binary**: Statically compiled Rust binary (~10-20MB)
+- **Total Size**: Typically under 30MB
+- **Architecture**: Currently supports `x86_64` Linux
+- **OCI Compliant**: Full OCI label support for registry metadata
+
 ## 📁 Project Structure
 
 ```
@@ -113,6 +305,10 @@ simple-docker-manager/
 ├── static/
 │   ├── styles.css        # Shared CSS styles
 │   └── dashboard.js      # Frontend JavaScript
+├── Dockerfile            # Multi-stage Docker build
+├── docker-compose.yml    # Compose configuration
+├── docker-build.sh       # Build script with options
+├── .dockerignore        # Docker build context exclusions
 ├── env.example          # Configuration template
 ├── Cargo.toml           # Rust dependencies
 └── README.md           # This file

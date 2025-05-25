@@ -1,0 +1,28 @@
+services:
+  simple-docker-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: simple-docker-manager:latest
+    container_name: simple-docker-manager
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount Docker socket for container management
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      # Override default configuration as needed
+      - SDM_HOST=0.0.0.0
+      - SDM_PORT=3000
+      - SDM_LOG_LEVEL=info
+      - SDM_METRICS_INTERVAL_SECONDS=5
+      - SDM_METRICS_HISTORY_LIMIT=20
+      - SDM_SHUTDOWN_TIMEOUT_SECONDS=30
+    restart: unless-stopped
+    # Note: Health check is defined in Dockerfile since we're using scratch base
+    # External health checks can be performed by hitting http://localhost:3000/health
+    labels:
+      # Container labels for better organization
+      - "traefik.enable=false"  # Disable Traefik if you use it
+      - "com.docker.compose.project=simple-docker-manager"
+      - "description=Simple Docker Manager - Container management interface"

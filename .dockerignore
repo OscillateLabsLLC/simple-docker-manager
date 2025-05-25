@@ -1,0 +1,48 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+
+# Git
+.git/
+.gitignore
+
+# Development files
+.env
+.env.*
+!env.example
+
+# Documentation and meta files
+README.md
+LICENSE
+CHANGELOG.md
+*.md
+
+# CI/CD
+.github/
+.release-please-*
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test files
+tests/
+benches/
+
+# Docker files themselves (avoid recursion)
+Dockerfile*
+.dockerignore
+
+# Other development tools
+rustfmt.toml
+clippy.toml 
