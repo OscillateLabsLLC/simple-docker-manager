@@ -29,3 +29,6 @@ target/
 # But keep example files
 !env.example
 !.env.example
+
+# Authentication password file (contains sensitive credentials)
+.sdm_password

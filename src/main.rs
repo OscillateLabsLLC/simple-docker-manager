@@ -7,6 +7,7 @@ mod config;
 mod docker;
 mod models;
 mod web;
+mod auth;
 
 use config::Config;
 

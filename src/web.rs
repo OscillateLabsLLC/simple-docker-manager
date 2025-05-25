@@ -3,18 +3,19 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Router, Json,
-    http::StatusCode,
+    http::{StatusCode, HeaderMap, HeaderValue},
+    middleware,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use html_escape;
 use tower_http::services::ServeDir;
 use futures_util::stream::StreamExt;
-use futures_util::sink::SinkExt;
 
 use crate::config::Config;
 use crate::docker;
 use crate::models::{ContainerSummary, LocalImageSummary};
+use crate::auth::{SessionStore, LoginForm};
 
 #[derive(Deserialize)]
 pub struct StartImageParams {
@@ -42,6 +43,7 @@ pub struct LogQuery {
 
 struct AppState {
     config: Config,
+    session_store: Arc<SessionStore>,
 }
 
 fn get_status_class(status: &str) -> &'static str {
@@ -209,10 +211,20 @@ async fn index_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse 
         Err(e) => format!(r#"<tr><td colspan="2"><div class="error-message">Error listing images: {}</div></td></tr>"#, e),
     };
 
+    // Generate logout button if auth is enabled
+    let logout_button = if state.config.auth_enabled {
+        r#"<form action="/logout" method="post" style="display: inline;">
+            <button type="submit" class="btn btn-logout" style="background: #e74c3c; color: white; padding: 0.5rem 1rem; border: none; border-radius: 5px; cursor: pointer;">🚪 Logout</button>
+        </form>"#
+    } else {
+        ""
+    };
+
     // Replace placeholders in template
     let html_output = template
         .replace("{{RUNNING_CONTAINERS_ROWS}}", &running_containers_rows)
-        .replace("{{IMAGE_ROWS}}", &image_rows);
+        .replace("{{IMAGE_ROWS}}", &image_rows)
+        .replace("{{AUTH_LOGOUT_BUTTON}}", logout_button);
 
     Html(html_output)
 }
@@ -258,8 +270,20 @@ async fn metrics_json_handler() -> impl IntoResponse {
     }
 }
 
-async fn metrics_dashboard_handler() -> impl IntoResponse {
-    Html(include_str!("../templates/dashboard.html"))
+async fn metrics_dashboard_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let template = include_str!("../templates/dashboard.html");
+    
+    // Generate logout button if auth is enabled
+    let logout_button = if state.config.auth_enabled {
+        r#"<form action="/logout" method="post" style="display: inline;">
+            <button type="submit" class="btn btn-logout" style="background: #e74c3c; color: white; padding: 0.5rem 1rem; border: none; border-radius: 5px; cursor: pointer;">🚪 Logout</button>
+        </form>"#
+    } else {
+        ""
+    };
+
+    let html_output = template.replace("{{AUTH_LOGOUT_BUTTON}}", logout_button);
+    Html(html_output)
 }
 
 async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -374,10 +398,92 @@ async fn logs_websocket(mut socket: WebSocket, container_id: String) {
     let _ = socket.close().await;
 }
 
+async fn login_handler_wrapper(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    // If auth is disabled, redirect to main page
+    if !state.config.auth_enabled {
+        return Redirect::to("/").into_response();
+    }
+
+    Html(crate::auth::LOGIN_TEMPLATE.replace("{{ERROR}}", "")).into_response()
+}
+
+#[axum::debug_handler]
+async fn login_post_handler_wrapper(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<LoginForm>,
+) -> impl IntoResponse {
+    // If auth is disabled, redirect to main page
+    if !state.config.auth_enabled {
+        return Redirect::to("/").into_response();
+    }
+
+    // Verify credentials
+    if form.username == state.config.auth_username {
+        match state.config.verify_password(&form.password) {
+            Ok(true) => {
+                // Create session
+                let session_id = state.session_store.create_session(&form.username).await;
+                
+                // Set session cookie and redirect
+                let cookie = format!("session_id={}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}", 
+                    session_id, state.config.session_timeout_seconds);
+                
+                let mut response = Redirect::to("/").into_response();
+                response.headers_mut().insert(
+                    "Set-Cookie",
+                    HeaderValue::from_str(&cookie).unwrap(),
+                );
+                response
+            }
+            _ => {
+                tracing::warn!("Failed login attempt for user: {}", form.username);
+                Html(crate::auth::LOGIN_TEMPLATE.replace("{{ERROR}}", "<div class=\"error-message\">❌ Invalid username or password</div>")).into_response()
+            }
+        }
+    } else {
+        tracing::warn!("Failed login attempt for unknown user: {}", form.username);
+        Html(crate::auth::LOGIN_TEMPLATE.replace("{{ERROR}}", "<div class=\"error-message\">❌ Invalid username or password</div>")).into_response()
+    }
+}
+
+async fn logout_handler_wrapper(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    // Extract session ID from cookie and remove session
+    if let Some(cookie_header) = headers.get("cookie") {
+        if let Ok(cookie_str) = cookie_header.to_str() {
+            if let Some(session_id) = extract_session_id(cookie_str) {
+                state.session_store.remove_session(&session_id).await;
+            }
+        }
+    }
+
+    // Clear cookie and redirect to login
+    let mut response = Redirect::to("/login").into_response();
+    response.headers_mut().insert(
+        "Set-Cookie",
+        HeaderValue::from_str("session_id=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0").unwrap(),
+    );
+    response
+}
+
+fn extract_session_id(cookie_str: &str) -> Option<String> {
+    for cookie in cookie_str.split(';') {
+        let cookie = cookie.trim();
+        if let Some(value) = cookie.strip_prefix("session_id=") {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
 pub fn app_router(config: &Config) -> Router {
     let state = Arc::new(AppState {
         config: config.clone(),
+        session_store: Arc::new(SessionStore::new(Arc::new(config.clone()))),
     });
+    
     Router::new()
         .route("/", get(index_handler))
         .route("/health", get(health_handler))
@@ -391,6 +497,13 @@ pub fn app_router(config: &Config) -> Router {
         .route("/api/metrics", get(metrics_json_handler))
         .route("/logs/:id", get(logs_handler))
         .route("/logs/:id/ws", get(logs_ws_handler))
+        .route("/login", get(login_handler_wrapper))
+        .route("/login", post(login_post_handler_wrapper))
+        .route("/logout", post(logout_handler_wrapper))
         .nest_service("/static", ServeDir::new("static"))
+        .layer(middleware::from_fn_with_state(
+            state.session_store.clone(),
+            crate::auth::auth_middleware,
+        ))
         .with_state(state)
-} 
+}

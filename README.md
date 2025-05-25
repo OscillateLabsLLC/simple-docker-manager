@@ -350,15 +350,161 @@ The application follows the [12-Factor App](https://12factor.net/) methodology a
 
 All configuration is done via environment variables prefixed with `SDM_`:
 
-| Variable                       | Default       | Description                                           |
-| ------------------------------ | ------------- | ----------------------------------------------------- |
-| `SDM_HOST`                     | `0.0.0.0`     | Server bind address                                   |
-| `SDM_PORT`                     | `3000`        | Server port                                           |
-| `SDM_LOG_LEVEL`                | `info`        | Log level (`error`, `warn`, `info`, `debug`, `trace`) |
-| `SDM_DOCKER_SOCKET`            | auto-detected | Docker socket path                                    |
-| `SDM_METRICS_INTERVAL_SECONDS` | `5`           | Metrics update interval                               |
-| `SDM_METRICS_HISTORY_LIMIT`    | `20`          | Max metrics history points                            |
-| `SDM_SHUTDOWN_TIMEOUT_SECONDS` | `30`          | Graceful shutdown timeout                             |
+| Variable                       | Default        | Description                                           |
+| ------------------------------ | -------------- | ----------------------------------------------------- |
+| `SDM_HOST`                     | `0.0.0.0`      | Server bind address                                   |
+| `SDM_PORT`                     | `3000`         | Server port                                           |
+| `SDM_LOG_LEVEL`                | `info`         | Log level (`error`, `warn`, `info`, `debug`, `trace`) |
+| `SDM_DOCKER_SOCKET`            | auto-detected  | Docker socket path                                    |
+| `SDM_METRICS_INTERVAL_SECONDS` | `5`            | Metrics update interval                               |
+| `SDM_METRICS_HISTORY_LIMIT`    | `20`           | Max metrics history points                            |
+| `SDM_SHUTDOWN_TIMEOUT_SECONDS` | `30`           | Graceful shutdown timeout                             |
+| `SDM_AUTH_ENABLED`             | `true`         | Enable/disable authentication                         |
+| `SDM_AUTH_USERNAME`            | `admin`        | Username for authentication                           |
+| `SDM_AUTH_PASSWORD`            | auto-generated | Password for authentication (see below)               |
+| `SDM_SESSION_TIMEOUT_SECONDS`  | `3600`         | Session timeout (1 hour)                              |
+| `SDM_PASSWORD_FILE`            | auto-detected  | Custom password file location                         |
+
+### 🔐 Authentication & Password Management
+
+The Simple Docker Manager uses secure authentication by default to protect your Docker environment.
+
+#### Password Behavior
+
+1. **Custom Password**: Set `SDM_AUTH_PASSWORD` environment variable
+
+   ```bash
+   SDM_AUTH_PASSWORD=your_secure_password cargo run
+   ```
+
+2. **Auto-Generated Password**: If no password is provided, the system will:
+
+   - Generate a secure 24-character random password
+   - Save it to a persistent file with secure permissions (600)
+   - Display the password in logs on first run
+   - Reuse the saved password on subsequent runs
+
+3. **Password File Locations**: The system automatically chooses the best location:
+
+   **For Containers** (auto-detected):
+
+   - `/data/sdm_password` (preferred - mount a volume here)
+   - `/config/sdm_password` (alternative config location)
+   - `/app/data/sdm_password` (app-specific data directory)
+   - `/var/lib/sdm/password` (system-style location)
+
+   **For Development**:
+
+   - `.sdm_password` (current directory)
+
+   **Custom Location**:
+
+   ```bash
+   SDM_PASSWORD_FILE=/my/custom/path/password cargo run
+   ```
+
+4. **Accessing Your Password**:
+
+   ```bash
+   # View the current password (path shown in startup logs)
+   cat /data/sdm_password
+
+   # Or check the logs when starting the application
+   cargo run
+   ```
+
+#### Container Deployment with Persistent Password
+
+**Docker Run**:
+
+```bash
+# Create a volume for persistent password storage
+docker volume create sdm-data
+
+# Run with volume mounted
+docker run -d \
+  --name simple-docker-manager \
+  -p 3000:3000 \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -v sdm-data:/data \
+  --restart unless-stopped \
+  simple-docker-manager:latest
+
+# View the generated password
+docker exec simple-docker-manager cat /data/sdm_password
+```
+
+**Docker Compose**:
+
+```yaml
+services:
+  simple-docker-manager:
+    image: simple-docker-manager:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - sdm-data:/data # Persistent password storage
+    restart: unless-stopped
+
+volumes:
+  sdm-data:
+```
+
+**Kubernetes**:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sdm-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: simple-docker-manager
+spec:
+  template:
+    spec:
+      containers:
+        - name: simple-docker-manager
+          image: simple-docker-manager:latest
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: sdm-data
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+```
+
+#### Security Features
+
+- **Argon2 Hashing**: Passwords are hashed using industry-standard Argon2
+- **Secure File Permissions**: Password file is created with 600 permissions (owner read/write only)
+- **Session Management**: Configurable session timeouts with secure cookies
+- **Container Detection**: Automatically uses container-friendly paths when deployed
+- **HTTPS Ready**: Use behind a reverse proxy with TLS for production
+
+#### Disabling Authentication (Not Recommended)
+
+```bash
+# Only for development/testing - NOT for production
+SDM_AUTH_ENABLED=false cargo run
+```
+
+⚠️ **Security Warning**: Disabling authentication gives unrestricted access to Docker containers!
 
 ### Configuration Methods
 
