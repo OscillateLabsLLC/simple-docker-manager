@@ -28,6 +28,7 @@
                             <th>Name</th>
                             <th>Image</th>
                             <th>Status</th>
+                            <th>Ports</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -55,5 +56,20 @@
             </div>
         </div>
     </div>
+
+    <script>
+        function toggleDetails(containerId) {
+            const detailsRow = document.getElementById('details-' + containerId);
+            const toggleIcon = document.getElementById('toggle-' + containerId);
+            
+            if (detailsRow.style.display === 'none' || !detailsRow.style.display) {
+                detailsRow.style.display = 'table-row';
+                toggleIcon.textContent = '▼';
+            } else {
+                detailsRow.style.display = 'none';
+                toggleIcon.textContent = '▶';
+            }
+        }
+    </script>
 </body>
 </html> 

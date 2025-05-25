@@ -47,14 +47,57 @@ fn get_status_class(status: &str) -> &'static str {
 
 fn generate_running_container_rows(containers: &[ContainerSummary]) -> String {
     if containers.is_empty() {
-        return r#"<tr><td colspan="4"><div class="empty-state">No running containers found</div></td></tr>"#.to_string();
+        return r#"<tr><td colspan="5"><div class="empty-state">No running containers found</div></td></tr>"#.to_string();
     }
 
     let mut rows_html = String::new();
     for container in containers {
         let status_class = get_status_class(&container.status);
+        
+        // Format ports
+        let ports_display = if container.ports.is_empty() {
+            "<span class='no-ports'>No exposed ports</span>".to_string()
+        } else {
+            container.ports.iter()
+                .map(|port| {
+                    if let Some(host_port) = port.host_port {
+                        format!("<span class='port-mapping'>{}:{}->{}/{}</span>", 
+                               "0.0.0.0", host_port, port.container_port, port.protocol)
+                    } else {
+                        format!("<span class='port-internal'>{}/{}</span>", 
+                               port.container_port, port.protocol)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("<br>")
+        };
+
+        // Format environment variables for details view
+        let env_vars_display = if container.environment.is_empty() {
+            "<div class='env-empty'>No environment variables</div>".to_string()
+        } else {
+            container.environment.iter()
+                .map(|env| {
+                    if let Some(eq_pos) = env.find('=') {
+                        let (key, value) = env.split_at(eq_pos);
+                        let value = &value[1..]; // Skip the '=' character
+                        format!("<div class='env-var'><span class='env-key'>{}</span>=<span class='env-value'>{}</span></div>", 
+                               html_escape::encode_text(key), 
+                               html_escape::encode_text(value))
+                    } else {
+                        format!("<div class='env-var'><span class='env-key'>{}</span></div>", 
+                               html_escape::encode_text(env))
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("")
+        };
+
         let actions = format!(r#"
             <div class="actions">
+                <button class="btn btn-details" onclick="toggleDetails('{}')">
+                    <span id="toggle-{}">▶</span> Details
+                </button>
                 <form action="/stop/{}" method="post">
                     <button class="btn btn-stop" type="submit">🛑 Stop</button>
                 </form>
@@ -62,18 +105,49 @@ fn generate_running_container_rows(containers: &[ContainerSummary]) -> String {
                     <button class="btn btn-restart" type="submit">🔄 Restart</button>
                 </form>
             </div>
-        "#, container.id, container.id);
+        "#, container.id, container.id, container.id, container.id);
 
+        // Main container row
         rows_html.push_str(&format!(r#"
             <tr>
                 <td>{}</td>
                 <td>{}</td>
                 <td><span class="{}">{}</span></td>
+                <td>{}</td>
                 <td>
                     {}
                 </td>
             </tr>
-        "#, container.name, container.image, status_class, container.status, actions));
+        "#, container.name, container.image, status_class, container.status, ports_display, actions));
+
+        // Details row (initially hidden)
+        rows_html.push_str(&format!(r#"
+            <tr id="details-{}" style="display: none;" class="details-row">
+                <td colspan="5">
+                    <div class="container-details">
+                        <div class="details-section">
+                            <h4>🔧 Environment Variables</h4>
+                            <div class="env-vars">
+                                {}
+                            </div>
+                        </div>
+                        <div class="details-section">
+                            <h4>📋 Container Information</h4>
+                            <div class="container-info">
+                                <div class="info-item">
+                                    <span class="info-label">Container ID:</span>
+                                    <span class="info-value">{}</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Full Image:</span>
+                                    <span class="info-value">{}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+        "#, container.id, env_vars_display, container.id, container.image));
     }
     rows_html
 }

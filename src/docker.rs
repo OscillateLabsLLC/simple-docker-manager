@@ -12,7 +12,7 @@ use bollard::Docker;
 use std::default::Default;
 use chrono::Utc;
 use futures_util::stream::StreamExt;
-use super::models::{ContainerSummary, LocalImageSummary, ContainerMetrics, SystemMetrics, MetricsResponse};
+use super::models::{ContainerSummary, LocalImageSummary, ContainerMetrics, SystemMetrics, MetricsResponse, PortMapping};
 
 /// Get a Docker client with optional custom socket configuration
 fn get_docker_client(socket_path: Option<&str>) -> Result<Docker, bollard::errors::Error> {
@@ -44,22 +44,85 @@ pub async fn list_running_containers_with_config(socket_path: Option<&str>) -> R
     });
 
     let containers = docker.list_containers(options).await?;
+    let mut detailed_containers = Vec::new();
 
-    Ok(containers.into_iter()
-        .filter_map(|c| {
-            let image = c.image.clone().unwrap_or_default();
-            if is_image_id(&image) {
-                None
-            } else {
-                Some(ContainerSummary {
-                    id: c.id.unwrap_or_default(),
-                    name: c.names.unwrap_or_default().get(0).unwrap_or(&"".to_string()).trim_start_matches('/').to_string(),
-                    image: c.image.unwrap_or_default(),
-                    status: c.state.unwrap_or_default(),
-                })
+    for container in containers {
+        let image = container.image.clone().unwrap_or_default();
+        if is_image_id(&image) {
+            continue;
+        }
+
+        let container_id = container.id.clone().unwrap_or_default();
+        let container_name = container.names
+            .unwrap_or_default()
+            .get(0)
+            .unwrap_or(&"".to_string())
+            .trim_start_matches('/')
+            .to_string();
+
+        // Get detailed information for each container
+        match docker.inspect_container(&container_id, None).await {
+            Ok(inspect_result) => {
+                // Extract ports
+                let mut ports = Vec::new();
+                if let Some(network_settings) = &inspect_result.network_settings {
+                    if let Some(port_map) = &network_settings.ports {
+                        for (port_key, port_bindings) in port_map {
+                            if let Some(bindings) = port_bindings {
+                                let (container_port, protocol) = if let Some(slash_pos) = port_key.find('/') {
+                                    let port_str = &port_key[..slash_pos];
+                                    let protocol_str = &port_key[slash_pos + 1..];
+                                    (port_str.parse::<u16>().unwrap_or(0), protocol_str.to_string())
+                                } else {
+                                    (port_key.parse::<u16>().unwrap_or(0), "tcp".to_string())
+                                };
+
+                                for binding in bindings {
+                                    let host_port = binding.host_port.as_ref()
+                                        .and_then(|p| p.parse::<u16>().ok());
+                                    
+                                    ports.push(PortMapping {
+                                        container_port,
+                                        host_port,
+                                        protocol: protocol.clone(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Extract environment variables
+                let environment = if let Some(config) = &inspect_result.config {
+                    config.env.clone().unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+
+                detailed_containers.push(ContainerSummary {
+                    id: container_id,
+                    name: container_name,
+                    image,
+                    status: container.state.unwrap_or_default(),
+                    ports,
+                    environment,
+                });
             }
-        })
-        .collect())
+            Err(_) => {
+                // Fallback to basic info if inspection fails
+                detailed_containers.push(ContainerSummary {
+                    id: container_id,
+                    name: container_name,
+                    image,
+                    status: container.state.unwrap_or_default(),
+                    ports: Vec::new(),
+                    environment: Vec::new(),
+                });
+            }
+        }
+    }
+
+    Ok(detailed_containers)
 }
 
 pub async fn list_downloaded_images() -> Result<Vec<LocalImageSummary>, bollard::errors::Error> {

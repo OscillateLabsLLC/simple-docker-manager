@@ -2,11 +2,20 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PortMapping {
+    pub container_port: u16,
+    pub host_port: Option<u16>,
+    pub protocol: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ContainerSummary {
     pub id: String,
     pub name: String,
     pub image: String,
     pub status: String,
+    pub ports: Vec<PortMapping>,
+    pub environment: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

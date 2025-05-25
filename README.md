@@ -140,6 +140,7 @@ simple-docker-manager/
 ### API Endpoints
 
 - `GET /api/metrics` - JSON metrics data for all containers
+- `GET /api/config` - Current configuration settings
 
 ### Static Assets
 
