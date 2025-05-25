@@ -33,7 +33,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs
 
 # Build dependencies (this will be cached unless Cargo.toml changes)
 RUN TARGET_TRIPLE=$(cat /tmp/target_triple) && \
-    cargo build --release --target $TARGET_TRIPLE
+    cargo build --release --target "$TARGET_TRIPLE"
 RUN rm src/main.rs
 
 # Copy the actual source code
@@ -46,8 +46,8 @@ COPY templates/ ./templates/
 # Build the application with static linking
 ENV RUSTFLAGS="-C target-feature=+crt-static"
 RUN TARGET_TRIPLE=$(cat /tmp/target_triple) && \
-    cargo build --release --target $TARGET_TRIPLE && \
-    cp target/$TARGET_TRIPLE/release/simple-docker-manager /tmp/simple-docker-manager
+    cargo build --release --target "$TARGET_TRIPLE" && \
+    cp "target/$TARGET_TRIPLE/release/simple-docker-manager" /tmp/simple-docker-manager
 
 # Runtime stage using scratch for minimal size
 FROM scratch
