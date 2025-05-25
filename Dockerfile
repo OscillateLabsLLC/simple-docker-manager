@@ -2,7 +2,7 @@
 FROM rust:1.84-slim AS builder
 
 # Install required system dependencies for static linking
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
     ca-certificates \
@@ -86,6 +86,11 @@ COPY --from=builder /app/templates/ /app/templates/
 
 # Set the working directory for the application
 WORKDIR /app
+
+# Create a non-root user
+# Note: For scratch images, we need to add the user in the final stage
+# We use a high UID to avoid conflicts with host system users
+USER 10001:10001
 
 # Expose the default port
 EXPOSE 3000

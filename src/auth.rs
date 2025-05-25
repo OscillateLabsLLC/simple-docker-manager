@@ -113,7 +113,7 @@ pub async fn auth_middleware(
     mut request: Request,
     next: Next,
 ) -> Response {
-    // Skip auth for health endpoints and static assets
+    // Skip auth for health endpoints, static assets, and login/logout
     let path = request.uri().path();
     if path.starts_with("/health") 
         || path.starts_with("/ready") 
@@ -142,8 +142,15 @@ pub async fn auth_middleware(
         }
     }
 
-    // No valid session, redirect to login
-    Redirect::to("/login").into_response()
+    // No valid session - handle differently for API vs web requests
+    if path.starts_with("/api/") {
+        // For API endpoints, return 401 Unauthorized instead of redirecting
+        use axum::http::StatusCode;
+        (StatusCode::UNAUTHORIZED, "Unauthorized").into_response()
+    } else {
+        // For web pages, redirect to login
+        Redirect::to("/login").into_response()
+    }
 }
 
 pub async fn login_handler(State(session_store): State<Arc<SessionStore>>) -> impl IntoResponse {

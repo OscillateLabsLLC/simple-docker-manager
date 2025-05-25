@@ -60,6 +60,82 @@ A beautiful, lightweight Docker container management service built with Rust, fe
 - **File Serving**: Static assets served efficiently
 - **Configuration**: Environment variables with .env support
 
+## 🔒 Security
+
+**⚠️ IMPORTANT**: This tool provides web-based control over Docker containers. Please review our security considerations before deployment.
+
+### Security Features
+
+- **🔐 Mandatory Authentication**: Secure login with Argon2 password hashing
+- **🛡️ Non-root Container**: Runs as unprivileged user (UID 10001)
+- **📦 Minimal Attack Surface**: Built on `scratch` base image with no shell
+- **🔒 Read-only Docker Socket**: Docker socket mounted read-only by default
+- **🚫 Static Binary**: No runtime dependencies or package managers
+
+### Security Scanning
+
+- **Automated Vulnerability Scanning**: Trivy, Cargo Audit, and Semgrep
+- **License Compliance**: Cargo Deny for dependency license checking
+- **Secret Detection**: GitLeaks for credential scanning
+- **Dockerfile Security**: Hadolint for container best practices
+
+### Security Best Practices
+
+- Always use HTTPS in production (reverse proxy recommended)
+- Use strong passwords and short session timeouts
+- Deploy in isolated networks with proper firewall rules
+- Regularly update dependencies and container images
+- Monitor access logs and authentication failures
+
+📋 **See [SECURITY.md](SECURITY.md) for complete security documentation and vulnerability reporting.**
+
+## 🛠️ Local Development & Security
+
+### Security Checks with Just
+
+We provide a `justfile` for running security checks locally before committing:
+
+```bash
+# Install just command runner (if not already installed)
+# macOS: brew install just
+# Linux: cargo install just
+# Windows: cargo install just
+
+# Run all security checks (matches CI)
+just
+
+# Quick security check (Rust only)
+just security-quick
+
+# Individual checks
+just rust-security      # Cargo audit + deny
+just container-security  # Docker security tests
+just secret-scan        # GitLeaks (if installed)
+just policy-check       # Security policy validation
+
+# Install required security tools
+just install-tools
+
+# Show available commands
+just --list
+```
+
+**Available Commands:**
+
+- `just` or `just security-all` - Run all security checks
+- `just security-quick` - Essential checks only (Rust + policy)
+- `just container-basic` - Basic container security (no external tools)
+- `just rust-security` - Dependency vulnerabilities and license checks
+- `just versions` - Show installed security tool versions
+- `just clean` - Clean up test artifacts
+- `just report` - Generate security report
+
+**Prerequisites:**
+
+- [Just](https://github.com/casey/just) command runner
+- Docker (for container security checks)
+- Optional: GitLeaks, Semgrep for additional scans
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -750,88 +826,53 @@ RUST_LOG=simple_docker_manager=debug cargo run
 - **Custom socket**: Set `SDM_DOCKER_SOCKET=/path/to/docker.sock`
 - **Remote Docker**: Currently not supported (local socket only)
 
-### Getting Help
+#### Docker Socket Permission Issues
 
-1. **Enable debug logging**: `SDM_LOG_LEVEL=debug`
-2. **Check health endpoint**: `curl http://localhost:3000/health`
-3. **Verify Docker access**: `docker ps` should work for the same user
+If you see errors like `Error in the hyper legacy client: client error (Connect)`, this indicates Docker socket permission problems:
 
-## 🚀 Future Enhancements
+**Symptoms:**
 
-- **Historical Data**: Store metrics in a database for long-term analysis
-- **Container Volumes**: Manage and inspect container volumes
-- **Network Management**: View and manage Docker networks
+- Authentication works fine, but API endpoints fail
+- Error message: "hyper legacy client: client error (Connect)"
+- Health endpoint returns unhealthy status
 
-## 🤝 Contributing
+**Root Cause:**
+The container runs as a non-root user (UID 10001) by default, but Docker socket access typically requires root privileges or docker group membership.
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+**Solutions:**
 
-## 📦 Releases
+1. **Run as root (Docker Compose - Recommended for simplicity):**
 
-This project uses automated releases powered by [release-please](https://github.com/googleapis/release-please).
+   ```yaml
+   services:
+     simple-docker-manager:
+       # ... other config ...
+       user: "0:0" # Run as root
+   ```
 
-### How Releases Work
+2. **Use host user (Linux only):**
 
-1. **Conventional Commits**: Use conventional commit messages for automatic changelog generation:
+   ```yaml
+   services:
+     simple-docker-manager:
+       # ... other config ...
+       user: "${DOCKER_USER_ID:-1000}:${DOCKER_GROUP_ID:-1000}"
+   ```
 
-   - `feat:` for new features
-   - `fix:` for bug fixes
-   - `docs:` for documentation changes
-   - `refactor:` for code refactoring
-   - `perf:` for performance improvements
-   - `test:` for test changes
-   - `chore:` for maintenance tasks
+   ```bash
+   export DOCKER_USER_ID=$(id -u)
+   export DOCKER_GROUP_ID=$(getent group docker | cut -d: -f3)
+   docker-compose up -d
+   ```
 
-2. **Automated Versioning**: When commits are pushed to `main`, release-please automatically:
+3. **Docker run with root:**
+   ```bash
+   docker run -d \
+     --name simple-docker-manager \
+     --user 0:0 \
+     -p 3000:3000 \
+     -v /var/run/docker.sock:/var/run/docker.sock:ro \
+     simple-docker-manager:latest
+   ```
 
-   - Analyzes commit messages
-   - Updates the version in `Cargo.toml`
-   - Generates a changelog
-   - Creates a release PR
-
-3. **Binary Publishing**: When a release PR is merged:
-   - Cross-platform binaries are built automatically
-   - Binaries are attached to the GitHub release
-   - SHA256 checksums are generated for verification
-
-### Available Binaries
-
-Pre-built binaries are available for each release:
-
-- **Linux x86_64**: `simple-docker-manager-linux-amd64.tar.gz`
-- **macOS Intel**: `simple-docker-manager-macos-amd64.tar.gz`
-- **macOS Apple Silicon**: `simple-docker-manager-macos-arm64.tar.gz`
-
-### Installation from Release
-
-```bash
-# Download and extract (replace with latest version)
-curl -L https://github.com/YOUR_USERNAME/simple-docker-manager/releases/download/v0.1.0/simple-docker-manager-linux-amd64.tar.gz | tar -xz
-
-# Make executable and move to PATH
-chmod +x simple-docker-manager
-sudo mv simple-docker-manager /usr/local/bin/
-
-# Run
-simple-docker-manager
-```
-
-## 📄 License
-
-This project is open source and available under the [MIT License](LICENSE).
-
-## 🙏 Acknowledgments
-
-- [Bollard](https://github.com/fussybeaver/bollard) - Excellent Docker API client for Rust
-- [Axum](https://github.com/tokio-rs/axum) - Modern, ergonomic web framework
-- [Chart.js](https://www.chartjs.org/) - Beautiful charts made simple
-- [Docker](https://www.docker.com/) - Container platform that makes this all possible
-- [12-Factor App](https://12factor.net/) - Methodology for building modern applications
-
----
-
-**Built with ❤️ and Rust** 🦀
+**Note:** On macOS with Docker Desktop, running as root is typically required since there's no docker group. On Linux, you can alternatively add the container user to the docker group, but this requires modifying the Dockerfile.

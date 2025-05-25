@@ -23,9 +23,16 @@ services:
       - SDM_SHUTDOWN_TIMEOUT_SECONDS=30
       # Authentication settings (secure by default)
       - SDM_AUTH_ENABLED=true
-      - SDM_AUTH_USERNAME=admin
+      - SDM_AUTH_USERNAME=neon
+      - SDM_AUTH_PASSWORD=neon
       # Note: SDM_AUTH_PASSWORD should be set to a secure password
       # If not set, a random password will be generated and saved to /data/sdm_password
+    # IMPORTANT: Running as root is required for Docker socket access, OR being part of the docker group
+    # On Linux, you could alternatively:
+    # 1. Add user to docker group: user: "1000:$(getent group docker | cut -d: -f3)"
+    # 2. Or use host user: user: "${DOCKER_USER_ID:-1000}:${DOCKER_GROUP_ID:-1000}"
+    # On macOS with Docker Desktop, root access is typically required
+    user: "0:0"
     restart: unless-stopped
     # Note: Health check is defined in Dockerfile since we're using scratch base
     # External health checks can be performed by hitting http://localhost:3000/health

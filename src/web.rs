@@ -272,8 +272,9 @@ async fn restart_container_handler(Path(container_id): Path<String>) -> impl Int
     }
 }
 
-async fn metrics_json_handler() -> impl IntoResponse {
-    match docker::get_all_metrics().await {
+async fn metrics_json_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let docker_socket = state.config.docker_socket.as_deref();
+    match docker::get_all_metrics_with_config(docker_socket).await {
         Ok(metrics) => Json(metrics).into_response(),
         Err(e) => {
             tracing::error!("Failed to get metrics: {}", e);

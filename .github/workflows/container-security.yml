@@ -1,0 +1,321 @@
+name: Container Security
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - '.dockerignore'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - '.dockerignore'
+
+jobs:
+  # Dockerfile security linting
+  dockerfile-lint:
+    name: Dockerfile Security Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Hadolint (Dockerfile linter)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          format: sarif
+          output-file: hadolint-results.sarif
+          no-fail: true
+
+      - name: Upload Hadolint scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: hadolint-results.sarif
+
+      - name: Run Hadolint (human readable)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          format: tty
+
+  # Docker Compose security validation
+  docker-compose-security:
+    name: Docker Compose Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose
+        run: |
+          docker-compose config --quiet
+          echo "✅ Docker Compose syntax is valid"
+
+      - name: Check for security anti-patterns in docker-compose.yml
+        run: |
+          echo "🔍 Checking for security anti-patterns..."
+          
+          # Check for privileged mode
+          if grep -q "privileged.*true" docker-compose.yml; then
+            echo "❌ SECURITY RISK: privileged mode detected"
+            exit 1
+          fi
+          
+          # Check for host network mode
+          if grep -q "network_mode.*host" docker-compose.yml; then
+            echo "⚠️  WARNING: host network mode detected"
+          fi
+          
+          # Check for volume mounts that could be risky
+          if grep -q "/var/run/docker.sock.*rw" docker-compose.yml; then
+            echo "❌ SECURITY RISK: Docker socket mounted as read-write"
+            exit 1
+          fi
+          
+          # Check for root user
+          if grep -q "user.*0:0" docker-compose.yml; then
+            echo "⚠️  WARNING: Running as root user detected"
+          fi
+          
+          echo "✅ No critical security anti-patterns found"
+
+  # Container image security scanning with multiple tools
+  container-security-scan:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build test image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: simple-docker-manager:security-test
+          load: true
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'simple-docker-manager:security-test'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Run Grype vulnerability scanner
+        uses: anchore/scan-action@v3
+        with:
+          image: 'simple-docker-manager:security-test'
+          fail-build: true
+          severity-cutoff: high
+
+      - name: Upload Grype scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: results.sarif
+
+  # Container runtime security analysis
+  container-runtime-security:
+    name: Container Runtime Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build test image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: simple-docker-manager:runtime-test
+          load: true
+
+      - name: Test container security features
+        run: |
+          echo "🔍 Testing container security features..."
+          
+          # Start container in background
+          docker run -d --name security-test \
+            -p 3001:3000 \
+            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+            simple-docker-manager:runtime-test
+          
+          # Wait for container to start
+          sleep 10
+          
+          # Check if container is running as non-root
+          USER_ID=$(docker exec security-test id -u)
+          if [ "$USER_ID" = "0" ]; then
+            echo "❌ SECURITY RISK: Container running as root"
+            docker logs security-test
+            docker stop security-test
+            exit 1
+          else
+            echo "✅ Container running as non-root user (UID: $USER_ID)"
+          fi
+          
+          # Check if container has minimal capabilities
+          CAPS=$(docker inspect security-test --format '{{.HostConfig.CapAdd}}')
+          if [ "$CAPS" != "<no value>" ] && [ "$CAPS" != "[]" ]; then
+            echo "⚠️  WARNING: Container has additional capabilities: $CAPS"
+          else
+            echo "✅ Container has minimal capabilities"
+          fi
+          
+          # Check if container filesystem is read-only where possible
+          # (Note: Our app needs to write to /data for password file, so we can't make it fully read-only)
+          
+          # Test health endpoint
+          if curl -f http://localhost:3001/health; then
+            echo "✅ Health endpoint accessible"
+          else
+            echo "❌ Health endpoint not accessible"
+            docker logs security-test
+            docker stop security-test
+            exit 1
+          fi
+          
+          # Clean up
+          docker stop security-test
+          docker rm security-test
+
+  # CIS Docker Benchmark compliance
+  cis-docker-benchmark:
+    name: CIS Docker Benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Docker Bench Security
+        run: |
+          # Clone Docker Bench Security
+          git clone https://github.com/docker/docker-bench-security.git
+          cd docker-bench-security
+          
+          # Run the benchmark (non-interactive)
+          sudo ./docker-bench-security.sh -l /tmp/docker-bench.log
+          
+          # Display results
+          cat /tmp/docker-bench.log
+          
+          # Check for critical failures
+          if grep -q "WARN" /tmp/docker-bench.log; then
+            echo "⚠️  Docker Bench Security found warnings"
+          fi
+          
+          if grep -q "INFO" /tmp/docker-bench.log; then
+            echo "ℹ️  Docker Bench Security found informational items"
+          fi
+
+      - name: Upload Docker Bench results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docker-bench-results
+          path: /tmp/docker-bench.log
+
+  # Container image analysis
+  container-analysis:
+    name: Container Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and analyze image
+        run: |
+          # Build image
+          docker build -t simple-docker-manager:analysis .
+          
+          # Analyze image layers and size
+          echo "📊 Image Analysis:"
+          docker images simple-docker-manager:analysis --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
+          
+          # Check image history for security
+          echo -e "\n🔍 Image History:"
+          docker history simple-docker-manager:analysis --no-trunc
+          
+          # Inspect image configuration
+          echo -e "\n⚙️  Image Configuration:"
+          docker inspect simple-docker-manager:analysis | jq '.[0].Config | {
+            User: .User,
+            ExposedPorts: .ExposedPorts,
+            Env: .Env,
+            Cmd: .Cmd,
+            Entrypoint: .Entrypoint,
+            WorkingDir: .WorkingDir
+          }'
+          
+          # Check for secrets in image
+          echo -e "\n🔐 Checking for potential secrets in image..."
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            wagoodman/dive:latest simple-docker-manager:analysis \
+            --ci --lowestEfficiency=0.9 --highestWastedBytes=50MB
+
+  # Supply chain security
+  supply-chain-security:
+    name: Supply Chain Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate SBOM (Software Bill of Materials)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.spdx.json
+
+      - name: Scan SBOM for vulnerabilities
+        uses: anchore/scan-action@v3
+        with:
+          sbom: sbom.spdx.json
+          fail-build: false
+
+  # Security summary
+  container-security-summary:
+    name: Container Security Summary
+    runs-on: ubuntu-latest
+    needs: [dockerfile-lint, docker-compose-security, container-security-scan, container-runtime-security, cis-docker-benchmark, container-analysis, supply-chain-security]
+    if: always()
+    steps:
+      - name: Container Security Summary
+        run: |
+          echo "## 🐳 Container Security Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Dockerfile Lint | ${{ needs.dockerfile-lint.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker Compose Security | ${{ needs.docker-compose-security.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Container Security Scan | ${{ needs.container-security-scan.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Runtime Security | ${{ needs.container-runtime-security.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| CIS Benchmark | ${{ needs.cis-docker-benchmark.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Container Analysis | ${{ needs.container-analysis.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Supply Chain Security | ${{ needs.supply-chain-security.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔒 **All container security checks completed. Review individual job outputs for details.**" >> $GITHUB_STEP_SUMMARY 

@@ -1,0 +1,332 @@
+name: Dependency Security
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  schedule:
+    # Check for dependency updates weekly on Sundays at 3 AM UTC
+    - cron: '0 3 * * 0'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Comprehensive dependency audit
+  dependency-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Update advisory database
+        run: cargo audit --update
+
+      - name: Run cargo audit (strict)
+        run: |
+          cargo audit --json --output audit-results.json
+          cargo audit --deny warnings
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-audit-results
+          path: audit-results.json
+
+  # License compliance checking
+  license-compliance:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-license
+        run: cargo install cargo-license --locked
+
+      - name: Generate license report
+        run: |
+          echo "# Dependency License Report" > license-report.md
+          echo "" >> license-report.md
+          echo "Generated on: $(date)" >> license-report.md
+          echo "" >> license-report.md
+          echo "## License Summary" >> license-report.md
+          cargo license --json | jq -r '.[] | "\(.name) \(.version) - \(.license)"' | sort | uniq -c | sort -nr >> license-report.md
+          echo "" >> license-report.md
+          echo "## Detailed License Information" >> license-report.md
+          cargo license --json | jq -r '.[] | "### \(.name) \(.version)\n- **License**: \(.license)\n- **Repository**: \(.repository // "N/A")\n"' >> license-report.md
+
+      - name: Check for problematic licenses
+        run: |
+          echo "🔍 Checking for problematic licenses..."
+          
+          # Define problematic licenses
+          PROBLEMATIC_LICENSES=("GPL-2.0" "GPL-3.0" "AGPL-1.0" "AGPL-3.0" "SSPL-1.0" "Commons Clause")
+          
+          # Get all licenses
+          LICENSES=$(cargo license --json | jq -r '.[].license' | sort | uniq)
+          
+          # Check each license
+          FOUND_PROBLEMATIC=false
+          for license in $LICENSES; do
+            for problematic in "${PROBLEMATIC_LICENSES[@]}"; do
+              if [[ "$license" == *"$problematic"* ]]; then
+                echo "❌ PROBLEMATIC LICENSE FOUND: $license"
+                FOUND_PROBLEMATIC=true
+              fi
+            done
+          done
+          
+          if [ "$FOUND_PROBLEMATIC" = true ]; then
+            echo "❌ Problematic licenses detected. Review required."
+            exit 1
+          else
+            echo "✅ No problematic licenses found"
+          fi
+
+      - name: Upload license report
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-report
+          path: license-report.md
+
+  # Dependency update checking
+  dependency-updates:
+    name: Dependency Updates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-outdated
+        run: cargo install cargo-outdated --locked
+
+      - name: Check for outdated dependencies
+        run: |
+          echo "🔍 Checking for outdated dependencies..."
+          cargo outdated --format json > outdated-deps.json
+          
+          # Display human-readable output
+          cargo outdated
+          
+          # Check if there are any outdated dependencies
+          OUTDATED_COUNT=$(jq '.dependencies | length' outdated-deps.json)
+          if [ "$OUTDATED_COUNT" -gt 0 ]; then
+            echo "⚠️  Found $OUTDATED_COUNT outdated dependencies"
+            echo "Consider updating dependencies for security and bug fixes"
+          else
+            echo "✅ All dependencies are up to date"
+          fi
+
+      - name: Upload outdated dependencies report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: outdated-dependencies
+          path: outdated-deps.json
+
+  # Supply chain security analysis
+  supply-chain-analysis:
+    name: Supply Chain Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-tree
+        run: cargo install cargo-tree --locked
+
+      - name: Generate dependency tree
+        run: |
+          echo "🌳 Generating dependency tree..."
+          cargo tree --format "{p} {l}" > dependency-tree.txt
+          
+          # Generate detailed tree with features
+          cargo tree --format "{p} {f}" --all-features > dependency-tree-features.txt
+          
+          # Count total dependencies
+          TOTAL_DEPS=$(cargo tree --format "{p}" | sort | uniq | wc -l)
+          echo "📊 Total unique dependencies: $TOTAL_DEPS"
+          
+          # Check for duplicate dependencies (different versions)
+          echo "🔍 Checking for duplicate dependencies..."
+          DUPLICATES=$(cargo tree --format "{p}" | sed 's/ v.*//' | sort | uniq -d)
+          if [ -n "$DUPLICATES" ]; then
+            echo "⚠️  Found duplicate dependencies (different versions):"
+            echo "$DUPLICATES"
+          else
+            echo "✅ No duplicate dependencies found"
+          fi
+
+      - name: Analyze dependency sources
+        run: |
+          echo "🔍 Analyzing dependency sources..."
+          
+          # Check for git dependencies (potentially less stable)
+          GIT_DEPS=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.source | test("git")) | .name')
+          if [ -n "$GIT_DEPS" ]; then
+            echo "⚠️  Found git dependencies:"
+            echo "$GIT_DEPS"
+            echo "Consider using published crates for better stability"
+          else
+            echo "✅ All dependencies from crates.io"
+          fi
+          
+          # Check for path dependencies (local development)
+          PATH_DEPS=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.source == null) | .name')
+          if [ -n "$PATH_DEPS" ]; then
+            echo "ℹ️  Found path dependencies (local development):"
+            echo "$PATH_DEPS"
+          fi
+
+      - name: Upload dependency analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-analysis
+          path: |
+            dependency-tree.txt
+            dependency-tree-features.txt
+
+  # Security advisory monitoring
+  security-advisories:
+    name: Security Advisories
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Check for security advisories
+        run: |
+          echo "🔍 Checking for security advisories..."
+          
+          # Update advisory database
+          cargo audit --update
+          
+          # Run audit with detailed output
+          if cargo audit --json > security-advisories.json; then
+            echo "✅ No security advisories found"
+          else
+            echo "❌ Security advisories found!"
+            cat security-advisories.json | jq '.vulnerabilities[]'
+            exit 1
+          fi
+
+      - name: Upload security advisories
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-advisories
+          path: security-advisories.json
+
+  # Dependency risk assessment
+  dependency-risk-assessment:
+    name: Dependency Risk Assessment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Assess dependency risks
+        run: |
+          echo "🎯 Assessing dependency risks..."
+          
+          # Get dependency metadata
+          cargo metadata --format-version 1 > metadata.json
+          
+          # Analyze dependency characteristics
+          echo "## Dependency Risk Assessment" > risk-assessment.md
+          echo "" >> risk-assessment.md
+          
+          # Check for dependencies with many transitive dependencies
+          echo "### Dependencies with High Transitive Dependency Count" >> risk-assessment.md
+          cargo tree --format "{p}" | sort | uniq -c | sort -nr | head -10 >> risk-assessment.md
+          echo "" >> risk-assessment.md
+          
+          # Check for recently published dependencies (potentially less tested)
+          echo "### Recently Published Dependencies (< 6 months)" >> risk-assessment.md
+          RECENT_CUTOFF=$(date -d '6 months ago' +%Y-%m-%d)
+          jq -r --arg cutoff "$RECENT_CUTOFF" '.packages[] | select(.publish_date > $cutoff) | "\(.name) \(.version) - Published: \(.publish_date)"' metadata.json >> risk-assessment.md 2>/dev/null || echo "No recent dependencies found" >> risk-assessment.md
+          echo "" >> risk-assessment.md
+          
+          # Check for dependencies with few downloads (potentially less popular/tested)
+          echo "### Low Download Count Dependencies" >> risk-assessment.md
+          echo "Note: This would require crates.io API integration for accurate data" >> risk-assessment.md
+          echo "" >> risk-assessment.md
+          
+          # Summary
+          TOTAL_DEPS=$(jq '.packages | length' metadata.json)
+          echo "### Summary" >> risk-assessment.md
+          echo "- Total dependencies: $TOTAL_DEPS" >> risk-assessment.md
+          echo "- Assessment completed on: $(date)" >> risk-assessment.md
+
+      - name: Upload risk assessment
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-risk-assessment
+          path: risk-assessment.md
+
+  # Dependency security summary
+  dependency-security-summary:
+    name: Dependency Security Summary
+    runs-on: ubuntu-latest
+    needs: [dependency-audit, license-compliance, dependency-updates, supply-chain-analysis, security-advisories, dependency-risk-assessment]
+    if: always()
+    steps:
+      - name: Dependency Security Summary
+        run: |
+          echo "## 📦 Dependency Security Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Dependency Audit | ${{ needs.dependency-audit.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| License Compliance | ${{ needs.license-compliance.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dependency Updates | ${{ needs.dependency-updates.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Supply Chain Analysis | ${{ needs.supply-chain-analysis.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Advisories | ${{ needs.security-advisories.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Risk Assessment | ${{ needs.dependency-risk-assessment.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📋 **Review artifact downloads for detailed reports and recommendations.**" >> $GITHUB_STEP_SUMMARY 

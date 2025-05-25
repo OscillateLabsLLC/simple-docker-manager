@@ -9,21 +9,26 @@ let config = {
 
 async function fetchConfig() {
   try {
-    const response = await fetch("/api/config");
+    const response = await fetch("/api/config", {
+      credentials: "same-origin",
+    });
     if (!response.ok) throw new Error("Failed to fetch config");
-    const fetchedConfig = await response.json();
-    config = { ...config, ...fetchedConfig };
+    const config = await response.json();
+
+    // Store config globally
+    window.dashboardConfig = config;
     configLoaded = true;
-    console.log("Configuration loaded:", config);
   } catch (error) {
-    console.warn("Failed to load configuration, using defaults:", error);
+    console.error("Error fetching config:", error);
     configLoaded = true; // Use defaults if config fails to load
   }
 }
 
 async function fetchMetrics() {
   try {
-    const response = await fetch("/api/metrics");
+    const response = await fetch("/api/metrics", {
+      credentials: "same-origin",
+    });
     if (!response.ok) throw new Error("Failed to fetch metrics");
     return await response.json();
   } catch (error) {
@@ -221,7 +226,8 @@ function updateCharts(containers) {
   const now = new Date().toLocaleTimeString();
 
   // Use configurable history limit
-  if (metricsHistory.length >= config.metrics_history_limit) {
+  const historyLimit = window.dashboardConfig?.metrics_history_limit || 20;
+  if (metricsHistory.length >= historyLimit) {
     metricsHistory.shift();
   }
   metricsHistory.push({ time: now, containers });
@@ -229,13 +235,14 @@ function updateCharts(containers) {
   const labels = metricsHistory.map((m) => m.time);
 
   // Limit containers shown in charts to top N by CPU usage to prevent chart overload
+  const maxChartContainers = window.dashboardConfig?.max_chart_containers || 5;
   console.log(
-    `Total containers: ${containers.length}, Max chart containers: ${config.max_chart_containers}`
+    `Total containers: ${containers.length}, Max chart containers: ${maxChartContainers}`
   );
 
   const topContainers = containers
     .sort((a, b) => b.cpu_usage_percent - a.cpu_usage_percent)
-    .slice(0, config.max_chart_containers);
+    .slice(0, maxChartContainers);
 
   console.log(
     `Showing ${topContainers.length} containers in charts:`,
@@ -347,8 +354,8 @@ function updateCharts(containers) {
   charts.disk.update("none");
 
   // Add a note if we're showing limited containers
-  if (containers.length > config.max_chart_containers) {
-    updateChartNote(containers.length, config.max_chart_containers);
+  if (containers.length > maxChartContainers) {
+    updateChartNote(containers.length, maxChartContainers);
   } else {
     hideChartNote();
   }
@@ -407,15 +414,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   await fetchConfig();
 
   // Log the loaded configuration for debugging
-  console.log("Dashboard initialized with config:", config);
+  console.log("Dashboard initialized with config:", window.dashboardConfig);
 
   initializeCharts();
   await updateDashboard();
 
   // Use configurable update interval (convert seconds to milliseconds)
-  const intervalMs = config.metrics_interval_seconds * 1000;
+  const intervalMs =
+    (window.dashboardConfig?.metrics_interval_seconds || 5) * 1000;
   console.log(
-    `Setting update interval to ${config.metrics_interval_seconds} seconds`
+    `Setting update interval to ${
+      window.dashboardConfig?.metrics_interval_seconds || 5
+    } seconds`
   );
   setInterval(updateDashboard, intervalMs);
 });

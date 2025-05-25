@@ -1,0 +1,197 @@
+name: Security Scans
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    # Run security scans weekly on Sundays at 2 AM UTC
+    - cron: '0 2 * * 0'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Combined Rust security checks
+  rust-security:
+    name: Rust Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-security-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install security tools
+        run: |
+          cargo install cargo-audit --locked
+          cargo install cargo-deny --locked
+
+      - name: Run cargo audit
+        run: cargo audit
+
+      - name: Run cargo deny
+        run: cargo deny check
+
+  # Essential container security
+  container-security:
+    name: Container Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build test image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: simple-docker-manager:security-test
+          load: true
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'simple-docker-manager:security-test'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Hadolint (Dockerfile linter)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+
+      - name: Test container security
+        run: |
+          # Start container and test basic security
+          docker run -d --name security-test \
+            -p 3001:3000 \
+            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+            simple-docker-manager:security-test
+          
+          sleep 10
+          
+          # Check if running as non-root
+          USER_ID=$(docker exec security-test id -u)
+          if [ "$USER_ID" = "0" ]; then
+            echo "❌ SECURITY RISK: Container running as root"
+            exit 1
+          fi
+          
+          # Test health endpoint
+          curl -f http://localhost:3001/health || exit 1
+          
+          # Clean up
+          docker stop security-test
+          docker rm security-test
+
+  # Secret scanning
+  secret-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run GitLeaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Basic SAST with Semgrep (free tier)
+  sast-scan:
+    name: SAST Scan
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: |
+          semgrep --config=auto --sarif --output=semgrep-results.sarif .
+
+      - name: Upload Semgrep results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep-results.sarif
+
+  # Security policy check
+  security-policy:
+    name: Security Policy Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for security policy
+        run: |
+          if [ ! -f SECURITY.md ]; then
+            echo "❌ No SECURITY.md file found"
+            exit 1
+          else
+            echo "✅ Security policy found"
+          fi
+
+      - name: Check Docker Compose security
+        run: |
+          # Basic security checks for docker-compose.yml
+          if grep -q "privileged.*true" docker-compose.yml; then
+            echo "❌ SECURITY RISK: privileged mode detected"
+            exit 1
+          fi
+          
+          if grep -q "/var/run/docker.sock.*rw" docker-compose.yml; then
+            echo "❌ SECURITY RISK: Docker socket mounted as read-write"
+            exit 1
+          fi
+          
+          echo "✅ Basic Docker Compose security checks passed"
+
+  # Security summary
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [rust-security, container-security, secret-scan, sast-scan, security-policy]
+    if: always()
+    steps:
+      - name: Security Summary
+        run: |
+          echo "## 🔒 Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Rust Security | ${{ needs.rust-security.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Container Security | ${{ needs.container-security.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Secret Scan | ${{ needs.secret-scan.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| SAST Scan | ${{ needs.sast-scan.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Policy | ${{ needs.security-policy.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔍 **Review the Security tab for detailed vulnerability reports**" >> $GITHUB_STEP_SUMMARY 

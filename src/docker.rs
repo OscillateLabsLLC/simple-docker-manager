@@ -178,7 +178,7 @@ pub async fn list_downloaded_images_with_config(socket_path: Option<&str>) -> Re
 }
 
 pub async fn create_and_start_container_from_image(image_name: &str) -> Result<(), bollard::errors::Error> {
-    let docker = Docker::connect_with_local_defaults()?;
+    let docker = get_docker_client(None)?;
     
     // Generate a simple name for the new container, e.g., "my-image-timestamp"
     // You might want a more robust naming strategy in a real application
@@ -210,7 +210,7 @@ pub async fn create_and_start_container_from_image(image_name: &str) -> Result<(
 
 /// Enhanced container creation with environment variables, port mappings, and restart policies
 pub async fn create_and_start_container_enhanced(request: CreateContainerRequest) -> Result<String, bollard::errors::Error> {
-    let docker = Docker::connect_with_local_defaults()?;
+    let docker = get_docker_client(None)?;
     
     // Generate container name if not provided
     let container_name = request.container_name.unwrap_or_else(|| {
@@ -304,22 +304,26 @@ pub async fn create_and_start_container_enhanced(request: CreateContainerRequest
 }
 
 pub async fn start_container(container_id_or_name: &str) -> Result<(), bollard::errors::Error> {
-    let docker = Docker::connect_with_local_defaults()?;
+    let docker = get_docker_client(None)?;
     docker.start_container(container_id_or_name, None::<StartContainerOptions<String>>).await
 }
 
 pub async fn stop_container(container_id_or_name: &str) -> Result<(), bollard::errors::Error> {
-    let docker = Docker::connect_with_local_defaults()?;
+    let docker = get_docker_client(None)?;
     docker.stop_container(container_id_or_name, None::<StopContainerOptions>).await
 }
 
 pub async fn restart_container(container_id_or_name: &str) -> Result<(), bollard::errors::Error> {
-    let docker = Docker::connect_with_local_defaults()?;
+    let docker = get_docker_client(None)?;
     docker.restart_container(container_id_or_name, None::<RestartContainerOptions>).await
 }
 
 pub async fn get_container_metrics(container_id: &str) -> Result<Option<ContainerMetrics>, bollard::errors::Error> {
-    let docker = Docker::connect_with_local_defaults()?;
+    get_container_metrics_with_config(container_id, None).await
+}
+
+pub async fn get_container_metrics_with_config(container_id: &str, socket_path: Option<&str>) -> Result<Option<ContainerMetrics>, bollard::errors::Error> {
+    let docker = get_docker_client(socket_path)?;
     
     // Get container info for name
     let container_info = docker.inspect_container(container_id, None).await?;
@@ -410,7 +414,11 @@ pub async fn get_container_metrics(container_id: &str) -> Result<Option<Containe
 }
 
 pub async fn get_system_metrics() -> Result<SystemMetrics, bollard::errors::Error> {
-    let docker = Docker::connect_with_local_defaults()?;
+    get_system_metrics_with_config(None).await
+}
+
+pub async fn get_system_metrics_with_config(socket_path: Option<&str>) -> Result<SystemMetrics, bollard::errors::Error> {
+    let docker = get_docker_client(socket_path)?;
     
     // Get version info
     let version_info = docker.version().await?;
@@ -444,12 +452,16 @@ pub async fn get_system_metrics() -> Result<SystemMetrics, bollard::errors::Erro
 }
 
 pub async fn get_all_metrics() -> Result<MetricsResponse, bollard::errors::Error> {
-    let system_metrics = get_system_metrics().await?;
-    let running_containers = list_running_containers().await?;
+    get_all_metrics_with_config(None).await
+}
+
+pub async fn get_all_metrics_with_config(socket_path: Option<&str>) -> Result<MetricsResponse, bollard::errors::Error> {
+    let system_metrics = get_system_metrics_with_config(socket_path).await?;
+    let running_containers = list_running_containers_with_config(socket_path).await?;
     
     let mut container_metrics = Vec::new();
     for container in running_containers {
-        if let Ok(Some(metrics)) = get_container_metrics(&container.id).await {
+        if let Ok(Some(metrics)) = get_container_metrics_with_config(&container.id, socket_path).await {
             container_metrics.push(metrics);
         }
     }
