@@ -19,6 +19,7 @@ services:
       - SDM_LOG_LEVEL=info
       - SDM_METRICS_INTERVAL_SECONDS=5
       - SDM_METRICS_HISTORY_LIMIT=20
+      - SDM_MAX_CHART_CONTAINERS=5
       - SDM_SHUTDOWN_TIMEOUT_SECONDS=30
       # Authentication settings (secure by default)
       - SDM_AUTH_ENABLED=true

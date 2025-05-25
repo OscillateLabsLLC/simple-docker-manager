@@ -1,5 +1,7 @@
 # 🐳 Simple Docker Manager
 
+![Simple Docker Manager](https://github.com/oscillatelabs/simple-docker-manager/blob/main/assets/simple-docker-manager.png)
+
 A beautiful, lightweight Docker container management service built with Rust, featuring real-time metrics visualization and an intuitive web interface.
 
 ![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)
@@ -376,6 +378,7 @@ All configuration is done via environment variables prefixed with `SDM_`:
 | `SDM_DOCKER_SOCKET`            | auto-detected  | Docker socket path                                    |
 | `SDM_METRICS_INTERVAL_SECONDS` | `5`            | Metrics update interval                               |
 | `SDM_METRICS_HISTORY_LIMIT`    | `20`           | Max metrics history points                            |
+| `SDM_MAX_CHART_CONTAINERS`     | `5`            | Max containers shown in charts (for performance)      |
 | `SDM_SHUTDOWN_TIMEOUT_SECONDS` | `30`           | Graceful shutdown timeout                             |
 | `SDM_AUTH_ENABLED`             | `true`         | Enable/disable authentication                         |
 | `SDM_AUTH_USERNAME`            | `admin`        | Username for authentication                           |

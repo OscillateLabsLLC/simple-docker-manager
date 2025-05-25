@@ -44,6 +44,7 @@ pub struct HealthResponse {
 pub struct ConfigResponse {
     metrics_interval_seconds: u64,
     metrics_history_limit: usize,
+    max_chart_containers: usize,
 }
 
 #[derive(Deserialize)]
@@ -332,6 +333,7 @@ async fn config_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse
     Json(ConfigResponse {
         metrics_interval_seconds: state.config.metrics_interval_seconds,
         metrics_history_limit: state.config.metrics_history_limit,
+        max_chart_containers: state.config.max_chart_containers,
     })
 }
 

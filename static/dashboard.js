@@ -1,8 +1,10 @@
 let charts = {};
 let metricsHistory = [];
+let configLoaded = false;
 let config = {
   metrics_interval_seconds: 5,
   metrics_history_limit: 20,
+  max_chart_containers: 5, // Default value, will be overridden by backend config
 };
 
 async function fetchConfig() {
@@ -11,9 +13,11 @@ async function fetchConfig() {
     if (!response.ok) throw new Error("Failed to fetch config");
     const fetchedConfig = await response.json();
     config = { ...config, ...fetchedConfig };
+    configLoaded = true;
     console.log("Configuration loaded:", config);
   } catch (error) {
     console.warn("Failed to load configuration, using defaults:", error);
+    configLoaded = true; // Use defaults if config fails to load
   }
 }
 
@@ -208,6 +212,12 @@ function initializeCharts() {
 }
 
 function updateCharts(containers) {
+  // Don't update charts until configuration is loaded
+  if (!configLoaded) {
+    console.log("Skipping chart update - configuration not yet loaded");
+    return;
+  }
+
   const now = new Date().toLocaleTimeString();
 
   // Use configurable history limit
@@ -218,8 +228,22 @@ function updateCharts(containers) {
 
   const labels = metricsHistory.map((m) => m.time);
 
+  // Limit containers shown in charts to top N by CPU usage to prevent chart overload
+  console.log(
+    `Total containers: ${containers.length}, Max chart containers: ${config.max_chart_containers}`
+  );
+
+  const topContainers = containers
+    .sort((a, b) => b.cpu_usage_percent - a.cpu_usage_percent)
+    .slice(0, config.max_chart_containers);
+
+  console.log(
+    `Showing ${topContainers.length} containers in charts:`,
+    topContainers.map((c) => c.container_name)
+  );
+
   // Update CPU chart
-  const cpuDatasets = containers.map((container, index) => ({
+  const cpuDatasets = topContainers.map((container, index) => ({
     label: container.container_name,
     data: metricsHistory.map((m) => {
       const c = m.containers.find(
@@ -237,7 +261,7 @@ function updateCharts(containers) {
   charts.cpu.update("none");
 
   // Update Memory chart
-  const memoryDatasets = containers.map((container, index) => ({
+  const memoryDatasets = topContainers.map((container, index) => ({
     label: container.container_name,
     data: metricsHistory.map((m) => {
       const c = m.containers.find(
@@ -254,9 +278,9 @@ function updateCharts(containers) {
   charts.memory.data.datasets = memoryDatasets;
   charts.memory.update("none");
 
-  // Update Network chart - show RX and TX separately
+  // Update Network chart - show RX and TX separately (limit to top containers)
   const networkDatasets = [];
-  containers.forEach((container, index) => {
+  topContainers.forEach((container, index) => {
     networkDatasets.push({
       label: `${container.container_name} RX`,
       data: metricsHistory.map((m) => {
@@ -288,9 +312,9 @@ function updateCharts(containers) {
   charts.network.data.datasets = networkDatasets;
   charts.network.update("none");
 
-  // Update Disk chart
+  // Update Disk chart (limit to top containers)
   const diskDatasets = [];
-  containers.forEach((container, index) => {
+  topContainers.forEach((container, index) => {
     diskDatasets.push({
       label: `${container.container_name} Read`,
       data: metricsHistory.map((m) => {
@@ -321,6 +345,48 @@ function updateCharts(containers) {
   charts.disk.data.labels = labels;
   charts.disk.data.datasets = diskDatasets;
   charts.disk.update("none");
+
+  // Add a note if we're showing limited containers
+  if (containers.length > config.max_chart_containers) {
+    updateChartNote(containers.length, config.max_chart_containers);
+  } else {
+    hideChartNote();
+  }
+}
+
+function updateChartNote(totalContainers, shownContainers) {
+  let noteElement = document.getElementById("chartNote");
+  if (!noteElement) {
+    noteElement = document.createElement("div");
+    noteElement.id = "chartNote";
+    noteElement.style.cssText = `
+      background: rgba(255, 193, 7, 0.1);
+      border: 1px solid rgba(255, 193, 7, 0.3);
+      border-radius: 8px;
+      padding: 12px;
+      margin: 16px 0;
+      color: #856404;
+      font-size: 14px;
+      text-align: center;
+    `;
+    const dashboard = document.getElementById("dashboard");
+    const firstChart = dashboard.querySelector(".chart-container");
+    if (firstChart) {
+      dashboard.insertBefore(noteElement, firstChart);
+    }
+  }
+  noteElement.innerHTML = `
+    <strong>📊 Chart Display Note:</strong> Showing top ${shownContainers} containers by CPU usage in charts (${totalContainers} total containers running).
+    <br><small>This helps maintain chart readability and performance.</small>
+  `;
+  noteElement.style.display = "block";
+}
+
+function hideChartNote() {
+  const noteElement = document.getElementById("chartNote");
+  if (noteElement) {
+    noteElement.style.display = "none";
+  }
 }
 
 async function updateDashboard() {
@@ -337,8 +403,11 @@ async function updateDashboard() {
 
 // Initialize the dashboard
 document.addEventListener("DOMContentLoaded", async () => {
-  // Load configuration first
+  // Load configuration first and wait for it
   await fetchConfig();
+
+  // Log the loaded configuration for debugging
+  console.log("Dashboard initialized with config:", config);
 
   initializeCharts();
   await updateDashboard();

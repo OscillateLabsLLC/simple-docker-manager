@@ -30,6 +30,10 @@ pub struct Config {
     #[serde(default = "default_metrics_history")]
     pub metrics_history_limit: usize,
     
+    /// Maximum number of containers to show in charts (for performance and readability)
+    #[serde(default = "default_max_chart_containers")]
+    pub max_chart_containers: usize,
+    
     /// Graceful shutdown timeout in seconds
     #[serde(default = "default_shutdown_timeout")]
     pub shutdown_timeout_seconds: u64,
@@ -269,6 +273,10 @@ fn default_metrics_history() -> usize {
     20
 }
 
+fn default_max_chart_containers() -> usize {
+    5
+}
+
 fn default_shutdown_timeout() -> u64 {
     30
 }
@@ -294,6 +302,7 @@ impl Default for Config {
             docker_socket: None,
             metrics_interval_seconds: default_metrics_interval(),
             metrics_history_limit: default_metrics_history(),
+            max_chart_containers: default_max_chart_containers(),
             shutdown_timeout_seconds: default_shutdown_timeout(),
             auth_enabled: default_auth_enabled(),
             auth_username: default_auth_username(),
