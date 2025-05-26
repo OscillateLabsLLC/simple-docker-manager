@@ -43,20 +43,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Log in to Docker Hub (optional)
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-        continue-on-error: true
-
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: |
-            ghcr.io/${{ github.repository }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/simple-docker-manager
+          images: ghcr.io/${{ github.repository }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -85,20 +76,13 @@ jobs:
           cat > deployment-instructions.md << 'EOF'
           # Simple Docker Manager - Deployment Instructions
           
-          ## Docker Images
+          ## Docker Image
           
-          The following Docker images have been published for version ${{ needs.release-please.outputs.tag_name }}:
+          The Docker image has been published to GitHub Container Registry for version ${{ needs.release-please.outputs.tag_name }}:
           
-          ### GitHub Container Registry (Recommended)
           ```bash
           docker pull ghcr.io/${{ github.repository }}:${{ needs.release-please.outputs.tag_name }}
           docker pull ghcr.io/${{ github.repository }}:latest
-          ```
-          
-          ### Docker Hub (if configured)
-          ```bash
-          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/simple-docker-manager:${{ needs.release-please.outputs.tag_name }}
-          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/simple-docker-manager:latest
           ```
           
           ## Quick Start
