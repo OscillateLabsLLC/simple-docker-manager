@@ -45,7 +45,7 @@ jobs:
         run: cargo install cargo-audit --locked
 
       - name: Update advisory database
-        run: cargo audit --update
+        run: cargo audit
 
       - name: Run cargo audit (strict)
         run: |
@@ -198,7 +198,7 @@ jobs:
           echo "🔍 Analyzing dependency sources..."
           
           # Check for git dependencies (potentially less stable)
-          GIT_DEPS=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.source | test("git")) | .name')
+          GIT_DEPS=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.source != null and (.source | test("git"))) | .name')
           if [ -n "$GIT_DEPS" ]; then
             echo "⚠️  Found git dependencies:"
             echo "$GIT_DEPS"
@@ -241,7 +241,7 @@ jobs:
           echo "🔍 Checking for security advisories..."
           
           # Update advisory database
-          cargo audit --update
+          cargo audit
           
           # Run audit with detailed output
           if cargo audit --json > security-advisories.json; then
