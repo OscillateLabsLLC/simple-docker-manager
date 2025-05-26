@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/OscillateLabsLLC/simple-docker-manager/compare/v0.1.0...v0.1.1) (2025-05-26)
+
+
+### Bug Fixes
+
+* release for macos ([c8dd59a](https://github.com/OscillateLabsLLC/simple-docker-manager/commit/c8dd59a313213f341697239027bbe33bf601db83))
+
 ## 0.1.0 (2025-05-25)
 
 
