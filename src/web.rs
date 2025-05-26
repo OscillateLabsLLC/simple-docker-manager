@@ -488,7 +488,9 @@ async fn login_handler_wrapper(State(state): State<Arc<AppState>>) -> impl IntoR
         return Redirect::to("/").into_response();
     }
 
-    Html(crate::auth::LOGIN_TEMPLATE.replace("{{ERROR}}", "")).into_response()
+    let template = include_str!("../templates/login.html");
+    let html = template.replace("{{ERROR_MESSAGE}}", "");
+    Html(html).into_response()
 }
 
 #[axum::debug_handler]
@@ -522,20 +524,18 @@ async fn login_post_handler_wrapper(
             }
             _ => {
                 tracing::warn!("Failed login attempt for user: {}", form.username);
-                Html(crate::auth::LOGIN_TEMPLATE.replace(
-                    "{{ERROR}}",
-                    "<div class=\"error-message\">❌ Invalid username or password</div>",
-                ))
-                .into_response()
+                let template = include_str!("../templates/login.html");
+                let error_html = r#"<div class="error-message">❌ Invalid username or password</div>"#;
+                let html = template.replace("{{ERROR_MESSAGE}}", error_html);
+                Html(html).into_response()
             }
         }
     } else {
         tracing::warn!("Failed login attempt for unknown user: {}", form.username);
-        Html(crate::auth::LOGIN_TEMPLATE.replace(
-            "{{ERROR}}",
-            "<div class=\"error-message\">❌ Invalid username or password</div>",
-        ))
-        .into_response()
+        let template = include_str!("../templates/login.html");
+        let error_html = r#"<div class="error-message">❌ Invalid username or password</div>"#;
+        let html = template.replace("{{ERROR_MESSAGE}}", error_html);
+        Html(html).into_response()
     }
 }
 

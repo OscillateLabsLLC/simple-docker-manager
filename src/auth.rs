@@ -169,7 +169,9 @@ pub async fn login_handler(State(session_store): State<Arc<SessionStore>>) -> im
         return Redirect::to("/").into_response();
     }
 
-    Html(LOGIN_TEMPLATE).into_response()
+    let template = include_str!("../templates/login.html");
+    let html = template.replace("{{ERROR_MESSAGE}}", "");
+    Html(html).into_response()
 }
 
 #[allow(dead_code)]
@@ -203,13 +205,18 @@ pub async fn login_post_handler(
             }
             _ => {
                 tracing::warn!("Failed login attempt for user: {}", form.username);
-                Html(LOGIN_TEMPLATE.replace("{{ERROR}}", "Invalid username or password"))
-                    .into_response()
+                let template = include_str!("../templates/login.html");
+                let error_html = r#"<div class="error-message">Invalid username or password</div>"#;
+                let html = template.replace("{{ERROR_MESSAGE}}", error_html);
+                Html(html).into_response()
             }
         }
     } else {
         tracing::warn!("Failed login attempt for unknown user: {}", form.username);
-        Html(LOGIN_TEMPLATE.replace("{{ERROR}}", "Invalid username or password")).into_response()
+        let template = include_str!("../templates/login.html");
+        let error_html = r#"<div class="error-message">Invalid username or password</div>"#;
+        let html = template.replace("{{ERROR_MESSAGE}}", error_html);
+        Html(html).into_response()
     }
 }
 
@@ -245,124 +252,3 @@ fn extract_session_id(cookie_str: &str) -> Option<String> {
     }
     None
 }
-
-pub const LOGIN_TEMPLATE: &str = r#"
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🐳 Simple Docker Manager - Login</title>
-    <link rel="stylesheet" href="/static/styles.css">
-    <style>
-        .login-container {
-            max-width: 400px;
-            margin: 100px auto;
-            padding: 2rem;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        }
-        
-        .login-form {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-        
-        .form-group {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-        
-        .form-group label {
-            font-weight: 500;
-            color: var(--text-light);
-        }
-        
-        .form-group input {
-            padding: 0.75rem;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 8px;
-            background: rgba(255, 255, 255, 0.1);
-            color: var(--text-light);
-            font-size: 1rem;
-        }
-        
-        .form-group input:focus {
-            outline: none;
-            border-color: var(--accent-blue);
-            box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
-        }
-        
-        .login-btn {
-            padding: 0.75rem;
-            background: var(--accent-blue);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        .login-btn:hover {
-            background: var(--accent-blue-dark);
-            transform: translateY(-2px);
-        }
-        
-        .error-message {
-            color: #ff6b6b;
-            font-size: 0.9rem;
-            text-align: center;
-            margin-top: 1rem;
-            padding: 0.75rem;
-            background: rgba(255, 107, 107, 0.1);
-            border: 1px solid rgba(255, 107, 107, 0.3);
-            border-radius: 8px;
-        }
-        
-        .app-title {
-            text-align: center;
-            margin-bottom: 2rem;
-            color: var(--text-light);
-        }
-        
-        .security-note {
-            font-size: 0.85rem;
-            color: var(--text-muted);
-            text-align: center;
-            margin-top: 1rem;
-            padding: 1rem;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-        }
-    </style>
-</head>
-<body>
-    <div class="login-container">
-        <h1 class="app-title">🐳 Simple Docker Manager</h1>
-        <form class="login-form" method="post" action="/login">
-            <div class="form-group">
-                <label for="username">Username</label>
-                <input type="text" id="username" name="username" required>
-            </div>
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required>
-            </div>
-            <button type="submit" class="login-btn">🔐 Login</button>
-        </form>
-        {{ERROR}}
-        <div class="security-note">
-            🔒 This application manages Docker containers with privileged access. 
-            Please ensure you're using a secure password.
-        </div>
-    </div>
-</body>
-</html>
-"#;
