@@ -525,7 +525,8 @@ async fn login_post_handler_wrapper(
             _ => {
                 tracing::warn!("Failed login attempt for user: {}", form.username);
                 let template = include_str!("../templates/login.html");
-                let error_html = r#"<div class="error-message">❌ Invalid username or password</div>"#;
+                let error_html =
+                    r#"<div class="error-message">❌ Invalid username or password</div>"#;
                 let html = template.replace("{{ERROR_MESSAGE}}", error_html);
                 Html(html).into_response()
             }
