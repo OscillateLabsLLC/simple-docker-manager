@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/OscillateLabsLLC/simple-docker-manager/compare/v0.2.0...v1.0.0) (2025-05-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* initial containerized release
+
+### Features
+
+* initial containerized release ([3d99d49](https://github.com/OscillateLabsLLC/simple-docker-manager/commit/3d99d49a9267c2b342bd2b601cdb027f2d0b37e6))
+
 ## [0.2.0](https://github.com/OscillateLabsLLC/simple-docker-manager/compare/v0.1.1...v0.2.0) (2025-05-26)
 
 
