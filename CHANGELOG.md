@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/OscillateLabsLLC/simple-docker-manager/compare/v0.1.1...v0.2.0) (2025-05-26)
+
+
+### Features
+
+* docker image release ([ea7e149](https://github.com/OscillateLabsLLC/simple-docker-manager/commit/ea7e149a1f5eb052d632601b3cc138816d79429e))
+
 ## [0.1.1](https://github.com/OscillateLabsLLC/simple-docker-manager/compare/v0.1.0...v0.1.1) (2025-05-26)
 
 
