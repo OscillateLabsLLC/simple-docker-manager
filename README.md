@@ -1,6 +1,6 @@
 # 🐳 Simple Docker Manager
 
-![Simple Docker Manager](https://github.com/oscillatelabs/simple-docker-manager/blob/main/assets/simple-docker-manager.png)
+![Simple Docker Manager](./simple-docker-manager.png)
 
 A beautiful, lightweight Docker container management service built with Rust, featuring real-time metrics visualization and an intuitive web interface.
 

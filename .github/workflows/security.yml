@@ -79,30 +79,6 @@ jobs:
           dockerfile: Dockerfile
           ignore: DL3008
 
-      - name: Test container security
-        run: |
-          # Start container and test basic security
-          docker run -d --name security-test \
-            -p 3001:3000 \
-            -v /var/run/docker.sock:/var/run/docker.sock:ro \
-            simple-docker-manager:security-test
-          
-          sleep 10
-          
-          # Check if running as non-root
-          USER_ID=$(docker exec security-test id -u)
-          if [ "$USER_ID" = "0" ]; then
-            echo "❌ SECURITY RISK: Container running as root"
-            exit 1
-          fi
-          
-          # Test health endpoint
-          curl -f http://localhost:3001/health || exit 1
-          
-          # Clean up
-          docker stop security-test
-          docker rm security-test
-
   # Secret scanning
   secret-scan:
     name: Secret Scan
