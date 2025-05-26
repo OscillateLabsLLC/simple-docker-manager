@@ -138,13 +138,58 @@ just --list
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Option 1: Using Pre-built Docker Images (Recommended)
+
+The easiest way to get started is using our pre-built Docker images from GitHub Container Registry:
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/oscillatelabsllc/simple-docker-manager:latest
+
+# Run the container
+docker run -d \
+  --name simple-docker-manager \
+  -p 3000:3000 \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e SDM_PASSWORD=your-secure-password \
+  --restart unless-stopped \
+  ghcr.io/oscillatelabsllc/simple-docker-manager:latest
+
+# Access the application
+open http://localhost:3000
+```
+
+**Using Docker Compose:**
+
+```yaml
+version: "3.8"
+services:
+  simple-docker-manager:
+    image: ghcr.io/oscillatelabsllc/simple-docker-manager:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - sdm-data:/data # Persistent password storage
+    environment:
+      - SDM_PASSWORD=your-secure-password
+    restart: unless-stopped
+
+volumes:
+  sdm-data:
+```
+
+### Option 2: Local Development & Building
+
+For development or customization:
+
+#### Prerequisites
 
 - Rust (latest stable version)
 - Docker installed and running
 - Access to Docker daemon (usually requires being in the `docker` group on Linux)
 
-### Installation
+#### Installation
 
 1. **Clone the repository**
 
@@ -184,9 +229,51 @@ just --list
 
 ## 🐳 Docker Deployment
 
-The Simple Docker Manager can be easily deployed using Docker with a minimal, statically-compiled container based on scratch for maximum security and efficiency.
+Simple Docker Manager is available as pre-built Docker images from GitHub Container Registry, making deployment quick and easy. The images are built with a minimal, statically-compiled container based on scratch for maximum security and efficiency.
 
-### 🏗️ Building the Docker Image
+### 📦 Pre-built Images (Recommended)
+
+**Available Images:**
+
+- `ghcr.io/oscillatelabsllc/simple-docker-manager:latest` - Latest stable release
+- `ghcr.io/oscillatelabsllc/simple-docker-manager:v1.x.x` - Specific version tags
+
+**Supported Architectures:**
+
+- `linux/amd64` (x86_64)
+- `linux/arm64` (ARM64/Apple Silicon)
+
+#### Quick Deployment
+
+```bash
+# Pull and run the latest image
+docker run -d \
+  --name simple-docker-manager \
+  -p 3000:3000 \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e SDM_PASSWORD=your-secure-password \
+  --restart unless-stopped \
+  ghcr.io/oscillatelabsllc/simple-docker-manager:latest
+```
+
+### 🐙 Using Docker Compose (Recommended)
+
+The easiest way to deploy is using Docker Compose with the pre-built image:
+
+```bash
+# Start the service
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the service
+docker-compose down
+```
+
+### 🏗️ Building Your Own Image (Development)
+
+If you need to customize the image or build from source:
 
 #### Option 1: Using the Build Script (Recommended)
 
@@ -225,24 +312,6 @@ docker run -d \
   simple-docker-manager:latest
 ```
 
-### 🐙 Using Docker Compose
-
-The easiest way to deploy is using Docker Compose:
-
-```bash
-# Start the service
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop the service
-docker-compose down
-
-# Rebuild and restart
-docker-compose up -d --build
-```
-
 ### 🏷️ Container Features
 
 - **Minimal Size**: Built on `scratch` base image for maximum security and minimal attack surface
@@ -269,80 +338,7 @@ docker run -d \
 
 ### 🌐 Production Deployment
 
-For production environments, consider:
-
-#### Kubernetes Deployment
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: simple-docker-manager
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: simple-docker-manager
-  template:
-    metadata:
-      labels:
-        app: simple-docker-manager
-    spec:
-      containers:
-        - name: simple-docker-manager
-          image: simple-docker-manager:latest
-          ports:
-            - containerPort: 3000
-          env:
-            - name: SDM_LOG_LEVEL
-              value: "info"
-            - name: SDM_METRICS_INTERVAL_SECONDS
-              value: "5"
-          volumeMounts:
-            - name: docker-sock
-              mountPath: /var/run/docker.sock
-              readOnly: true
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 3000
-            initialDelaySeconds: 30
-            periodSeconds: 30
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: 3000
-            initialDelaySeconds: 5
-            periodSeconds: 10
-      volumes:
-        - name: docker-sock
-          hostPath:
-            path: /var/run/docker.sock
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: simple-docker-manager
-spec:
-  selector:
-    app: simple-docker-manager
-  ports:
-    - port: 80
-      targetPort: 3000
-  type: LoadBalancer
-```
-
-#### Docker Swarm
-
-```bash
-docker service create \
-  --name simple-docker-manager \
-  --publish 3000:3000 \
-  --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock,readonly \
-  --env SDM_LOG_LEVEL=info \
-  --replicas 1 \
-  simple-docker-manager:latest
-```
+For production environments, use the pre-built images:
 
 ### 🔍 Health Monitoring
 
@@ -525,7 +521,7 @@ docker run -d \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -v sdm-data:/data \
   --restart unless-stopped \
-  simple-docker-manager:latest
+  ghcr.io/oscillatelabsllc/simple-docker-manager:latest
 
 # View the generated password
 docker exec simple-docker-manager cat /data/sdm_password
@@ -536,7 +532,7 @@ docker exec simple-docker-manager cat /data/sdm_password
 ```yaml
 services:
   simple-docker-manager:
-    image: simple-docker-manager:latest
+    image: ghcr.io/oscillatelabsllc/simple-docker-manager:latest
     ports:
       - "3000:3000"
     volumes:
@@ -546,44 +542,6 @@ services:
 
 volumes:
   sdm-data:
-```
-
-**Kubernetes**:
-
-```yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: sdm-data
-spec:
-  accessModes: [ReadWriteOnce]
-  resources:
-    requests:
-      storage: 1Gi
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: simple-docker-manager
-spec:
-  template:
-    spec:
-      containers:
-        - name: simple-docker-manager
-          image: simple-docker-manager:latest
-          volumeMounts:
-            - name: data
-              mountPath: /data
-            - name: docker-sock
-              mountPath: /var/run/docker.sock
-              readOnly: true
-      volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: sdm-data
-        - name: docker-sock
-          hostPath:
-            path: /var/run/docker.sock
 ```
 
 #### Security Features
@@ -639,42 +597,7 @@ SDM_PORT=9000 SDM_LOG_LEVEL=trace cargo run
 For Docker deployment, pass environment variables:
 
 ```bash
-docker run -e SDM_PORT=8080 -e SDM_LOG_LEVEL=warn your-image
-```
-
-For Kubernetes, use ConfigMaps and Secrets:
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: docker-manager-config
-data:
-  SDM_LOG_LEVEL: "info"
-  SDM_METRICS_INTERVAL_SECONDS: "10"
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: docker-manager
-spec:
-  template:
-    spec:
-      containers:
-        - name: docker-manager
-          envFrom:
-            - configMapRef:
-                name: docker-manager-config
-          ports:
-            - containerPort: 3000
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 3000
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: 3000
+docker run -e SDM_PORT=8080 -e SDM_LOG_LEVEL=warn ghcr.io/oscillatelabsllc/simple-docker-manager:latest
 ```
 
 ## 📊 Metrics Data Structure
@@ -757,7 +680,7 @@ The application provides standard health check endpoints:
 
 The application handles shutdown signals gracefully:
 
-- **SIGTERM**: Kubernetes/container termination
+- **SIGTERM**: Container termination
 - **SIGINT**: Ctrl+C for development
 - **Configurable timeout**: Prevents hanging shutdowns
 
@@ -872,7 +795,7 @@ The container runs as a non-root user (UID 10001) by default, but Docker socket 
      --user 0:0 \
      -p 3000:3000 \
      -v /var/run/docker.sock:/var/run/docker.sock:ro \
-     simple-docker-manager:latest
+     ghcr.io/oscillatelabsllc/simple-docker-manager:latest
    ```
 
-**Note:** On macOS with Docker Desktop, running as root is typically required since there's no docker group. On Linux, you can alternatively add the container user to the docker group, but this requires modifying the Dockerfile.
+**Note:** On macOS with Docker Desktop, running as root is typically required since there's no docker group. On Linux, you can alternatively add the container user to the docker group.
