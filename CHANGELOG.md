@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/OscillateLabsLLC/simple-docker-manager/compare/v1.0.0...v1.0.1) (2026-02-17)
+
+
+### Bug Fixes
+
+* security concerns ([beb3678](https://github.com/OscillateLabsLLC/simple-docker-manager/commit/beb3678f33a3861189d56f2033b0c23e8dacf532))
+
 ## [1.0.0](https://github.com/OscillateLabsLLC/simple-docker-manager/compare/v0.2.0...v1.0.0) (2025-05-26)
 
 
