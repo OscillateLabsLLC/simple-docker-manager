@@ -2,8 +2,17 @@
 name = "simple-docker-manager"
 version = "1.0.0"
 edition = "2021"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "simple_docker_manager"
+path = "src/lib.rs"
+
+[[bin]]
+name = "simple-docker-manager"
+path = "src/main.rs"
 
 [dependencies]
 axum = { version = "0.7.5", features = ["ws", "form", "query", "macros"] }
@@ -28,4 +37,8 @@ argon2 = "0.5"
 base64 = "0.22"
 uuid = { version = "1.0", features = ["v4"] }
 serde_urlencoded = "0.7"
-urlencoding = "2.1" 
+urlencoding = "2.1"
+
+# Security: Force newer versions to address vulnerabilities
+bytes = "1.11.1"  # RUSTSEC-2026-0007: Integer overflow fix
+time = "0.3.47"   # RUSTSEC-2026-0009: DoS via stack exhaustion fix 

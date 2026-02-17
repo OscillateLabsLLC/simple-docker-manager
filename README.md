@@ -136,6 +136,55 @@ just --list
 - Docker (for container security checks)
 - Optional: GitLeaks, Semgrep for additional scans
 
+## 🧪 Testing
+
+Simple Docker Manager includes a comprehensive test suite covering core functionality.
+
+### Running Tests
+
+```bash
+# Run all tests
+cargo test
+
+# Run tests with output
+cargo test -- --nocapture
+
+# Run a specific test
+cargo test test_name
+```
+
+### Test Coverage
+
+We use `cargo-llvm-cov` for coverage reporting:
+
+```bash
+# Install coverage tool
+cargo install cargo-llvm-cov
+rustup component add llvm-tools-preview
+
+# Generate coverage report
+cargo llvm-cov --all-features --workspace
+
+# Generate HTML report
+cargo llvm-cov --all-features --workspace --html
+open target/llvm-cov/html/index.html
+```
+
+**Current Coverage:**
+
+- **models.rs**: 100% - All data structures fully tested
+- **auth.rs**: ~69% - Session management and authentication logic
+- **config.rs**: ~58% - Configuration and password handling
+- **Overall**: ~30% - Core logic well-tested; Docker/web integration would require mocks/integration tests
+
+### Test Organization
+
+- **Unit tests**: Located in each module's `#[cfg(test)]` section
+- **Integration tests**: In `tests/` directory for end-to-end scenarios
+- **CI/CD**: GitHub Actions runs tests on every PR and push to main
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for more details on testing requirements.
+
 ## 🚀 Quick Start
 
 ### Option 1: Using Pre-built Docker Images (Recommended)
@@ -471,7 +520,6 @@ The Simple Docker Manager uses secure authentication by default to protect your 
    ```
 
 2. **Auto-Generated Password**: If no password is provided, the system will:
-
    - Generate a secure 24-character random password
    - Save it to a persistent file with secure permissions (600)
    - Display the password in logs on first run
@@ -480,14 +528,12 @@ The Simple Docker Manager uses secure authentication by default to protect your 
 3. **Password File Locations**: The system automatically chooses the best location:
 
    **For Containers** (auto-detected):
-
    - `/data/sdm_password` (preferred - mount a volume here)
    - `/config/sdm_password` (alternative config location)
    - `/app/data/sdm_password` (app-specific data directory)
    - `/var/lib/sdm/password` (system-style location)
 
    **For Development**:
-
    - `.sdm_password` (current directory)
 
    **Custom Location**:

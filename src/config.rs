@@ -331,3 +331,115 @@ impl Default for Config {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    #[test]
+    fn test_config_defaults() {
+        let config = Config::default();
+        assert_eq!(config.host, "0.0.0.0");
+        assert_eq!(config.port, 3000);
+        assert_eq!(config.log_level, "info");
+        assert_eq!(config.metrics_interval_seconds, 5);
+        assert_eq!(config.metrics_history_limit, 20);
+        assert_eq!(config.max_chart_containers, 5);
+        assert_eq!(config.shutdown_timeout_seconds, 30);
+        assert!(config.auth_enabled);
+        assert_eq!(config.auth_username, "admin");
+        assert_eq!(config.session_timeout_seconds, 3600);
+    }
+
+    #[test]
+    fn test_bind_address() {
+        let config = Config {
+            host: "127.0.0.1".to_string(),
+            port: 8080,
+            ..Default::default()
+        };
+        assert_eq!(config.bind_address(), "127.0.0.1:8080");
+    }
+
+    #[test]
+    fn test_password_hashing() {
+        let password = "test_password_123";
+        let hash = Config::hash_password(password).expect("Should hash password");
+
+        // Hash should start with Argon2 prefix
+        assert!(hash.starts_with("$argon2"));
+
+        // Hash should be different each time due to random salt
+        let hash2 = Config::hash_password(password).expect("Should hash password");
+        assert_ne!(hash, hash2);
+    }
+
+    #[test]
+    fn test_password_verification() {
+        let password = "secure_password_456";
+        let hash = Config::hash_password(password).expect("Should hash password");
+
+        let mut config = Config::default();
+        config.auth_password_hash = Some(hash);
+
+        // Correct password should verify
+        assert!(config.verify_password(password).unwrap());
+
+        // Incorrect password should not verify
+        assert!(!config.verify_password("wrong_password").unwrap());
+    }
+
+    #[test]
+    fn test_password_verification_without_hash() {
+        let config = Config::default();
+
+        // Should return false if no hash is set
+        assert!(!config.verify_password("any_password").unwrap());
+    }
+
+    #[test]
+    fn test_generate_password_length() {
+        let password = Config::generate_password();
+
+        // Generated password should be 24 characters
+        assert_eq!(password.len(), 24);
+
+        // Should be alphanumeric (hex characters from UUID)
+        assert!(password.chars().all(|c| c.is_ascii_alphanumeric()));
+    }
+
+    #[test]
+    fn test_generate_password_uniqueness() {
+        let password1 = Config::generate_password();
+        let password2 = Config::generate_password();
+
+        // Each generated password should be unique
+        assert_ne!(password1, password2);
+    }
+
+    #[test]
+    fn test_get_password_file_path() {
+        // Test that the function returns a path
+        // (specific path depends on environment, so we just check it's not empty)
+        let path = Config::get_password_file_path();
+        assert!(!path.is_empty());
+
+        // Should contain "password" in the path
+        assert!(path.contains("password") || path.contains("sdm"));
+    }
+
+    #[test]
+    fn test_default_functions() {
+        assert_eq!(default_host(), "0.0.0.0");
+        assert_eq!(default_port(), 3000);
+        assert_eq!(default_log_level(), "info");
+        assert_eq!(default_metrics_interval(), 5);
+        assert_eq!(default_metrics_history(), 20);
+        assert_eq!(default_max_chart_containers(), 5);
+        assert_eq!(default_shutdown_timeout(), 30);
+        assert!(default_auth_enabled());
+        assert_eq!(default_auth_username(), "admin");
+        assert_eq!(default_session_timeout(), 3600);
+    }
+}

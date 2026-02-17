@@ -1,5 +1,6 @@
 # Build stage
-FROM rust:1.84-slim AS builder
+# Note: Using 1.93+ for edition 2024 and time crate support (requires 1.88+)
+FROM rust:1.93-slim AS builder
 
 # Install required system dependencies for static linking
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -28,13 +29,15 @@ RUN case "$TARGETARCH" in \
 # Copy dependency files first for better caching
 COPY Cargo.toml Cargo.lock ./
 
-# Create a dummy main.rs to build dependencies
-RUN mkdir src && echo "fn main() {}" > src/main.rs
+# Create dummy source files to build dependencies
+RUN mkdir src && \
+    echo "fn main() {}" > src/main.rs && \
+    echo "" > src/lib.rs
 
 # Build dependencies (this will be cached unless Cargo.toml changes)
 RUN TARGET_TRIPLE=$(cat /tmp/target_triple) && \
     cargo build --release --target "$TARGET_TRIPLE"
-RUN rm src/main.rs
+RUN rm src/main.rs src/lib.rs
 
 # Copy the actual source code
 COPY src/ ./src/

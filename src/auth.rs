@@ -252,3 +252,167 @@ fn extract_session_id(cookie_str: &str) -> Option<String> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_config() -> Arc<Config> {
+        Arc::new(Config {
+            auth_enabled: true,
+            auth_username: "testuser".to_string(),
+            session_timeout_seconds: 3600,
+            ..Default::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn test_create_session() {
+        let config = create_test_config();
+        let store = SessionStore::new(config);
+
+        let session_id = store.create_session("testuser").await;
+
+        // Session ID should be a valid UUID
+        assert!(!session_id.is_empty());
+        assert_eq!(session_id.len(), 36); // UUID length with hyphens
+
+        // Should be able to retrieve the session
+        let session = store.get_session(&session_id).await;
+        assert!(session.is_some());
+
+        let session = session.unwrap();
+        assert_eq!(session.username, "testuser");
+    }
+
+    #[tokio::test]
+    async fn test_get_nonexistent_session() {
+        let config = create_test_config();
+        let store = SessionStore::new(config);
+
+        let session = store.get_session("nonexistent-session-id").await;
+        assert!(session.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_remove_session() {
+        let config = create_test_config();
+        let store = SessionStore::new(config);
+
+        let session_id = store.create_session("testuser").await;
+
+        // Session should exist
+        assert!(store.get_session(&session_id).await.is_some());
+
+        // Remove session
+        let removed = store.remove_session(&session_id).await;
+        assert!(removed);
+
+        // Session should no longer exist
+        assert!(store.get_session(&session_id).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_remove_nonexistent_session() {
+        let config = create_test_config();
+        let store = SessionStore::new(config);
+
+        let removed = store.remove_session("nonexistent-session-id").await;
+        assert!(!removed);
+    }
+
+    #[tokio::test]
+    async fn test_session_timeout() {
+        let config = Arc::new(Config {
+            auth_enabled: true,
+            auth_username: "testuser".to_string(),
+            session_timeout_seconds: 1, // 1 second timeout for testing
+            ..Default::default()
+        });
+        let store = SessionStore::new(config);
+
+        let session_id = store.create_session("testuser").await;
+
+        // Session should exist immediately
+        assert!(store.get_session(&session_id).await.is_some());
+
+        // Wait for timeout
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        // Session should be expired
+        assert!(store.get_session(&session_id).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_expired_sessions() {
+        let config = Arc::new(Config {
+            auth_enabled: true,
+            auth_username: "testuser".to_string(),
+            session_timeout_seconds: 1,
+            ..Default::default()
+        });
+        let store = SessionStore::new(config);
+
+        // Create multiple sessions
+        let session1 = store.create_session("user1").await;
+        let session2 = store.create_session("user2").await;
+
+        // Both should exist
+        assert!(store.get_session(&session1).await.is_some());
+        assert!(store.get_session(&session2).await.is_some());
+
+        // Wait for expiration
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        // Cleanup expired sessions
+        store.cleanup_expired_sessions().await;
+
+        // Both should be removed
+        assert!(store.get_session(&session1).await.is_none());
+        assert!(store.get_session(&session2).await.is_none());
+    }
+
+    #[test]
+    fn test_extract_session_id_valid() {
+        let cookie_str = "session_id=abc123; other=value";
+        let session_id = extract_session_id(cookie_str);
+        assert_eq!(session_id, Some("abc123".to_string()));
+    }
+
+    #[test]
+    fn test_extract_session_id_only_session() {
+        let cookie_str = "session_id=xyz789";
+        let session_id = extract_session_id(cookie_str);
+        assert_eq!(session_id, Some("xyz789".to_string()));
+    }
+
+    #[test]
+    fn test_extract_session_id_multiple_cookies() {
+        let cookie_str = "foo=bar; session_id=test123; baz=qux";
+        let session_id = extract_session_id(cookie_str);
+        assert_eq!(session_id, Some("test123".to_string()));
+    }
+
+    #[test]
+    fn test_extract_session_id_missing() {
+        let cookie_str = "foo=bar; baz=qux";
+        let session_id = extract_session_id(cookie_str);
+        assert_eq!(session_id, None);
+    }
+
+    #[test]
+    fn test_extract_session_id_empty() {
+        let cookie_str = "";
+        let session_id = extract_session_id(cookie_str);
+        assert_eq!(session_id, None);
+    }
+
+    #[test]
+    fn test_login_form_deserialization() {
+        let json = r#"{"username": "admin", "password": "secret"}"#;
+        let form: LoginForm = serde_json::from_str(json).expect("Should deserialize");
+
+        assert_eq!(form.username, "admin");
+        assert_eq!(form.password, "secret");
+    }
+}

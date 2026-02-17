@@ -32,3 +32,5 @@ target/
 
 # Authentication password file (contains sensitive credentials)
 .sdm_password
+
+.DS_Store
