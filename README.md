@@ -1,12 +1,13 @@
 # 🐳 Simple Docker Manager
 
-![Simple Docker Manager](./simple-docker-manager.png)
-
-A beautiful, lightweight Docker container management service built with Rust, featuring real-time metrics visualization and an intuitive web interface.
-
+[![Status: Active](https://img.shields.io/badge/status-active-brightgreen)](https://github.com/OscillateLabsLLC/.github/blob/main/SUPPORT_STATUS.md)
 ![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)
 ![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/javascript-%23323330.svg?style=for-the-badge&logo=javascript&logoColor=%23F7DF1E)
+
+![Simple Docker Manager](./simple-docker-manager.png)
+
+A beautiful, lightweight Docker container management service built with Rust, featuring real-time metrics visualization and an intuitive web interface.
 
 ## ✨ Features
 
