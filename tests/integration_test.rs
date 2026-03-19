@@ -40,8 +40,8 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_session_lifecycle() {
-        use std::sync::Arc;
         use auth::SessionStore;
+        use std::sync::Arc;
 
         let config = Arc::new(config::Config {
             auth_enabled: true,

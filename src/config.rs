@@ -335,7 +335,6 @@ impl Default for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
 
     #[test]
     fn test_config_defaults() {
