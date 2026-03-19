@@ -335,7 +335,6 @@ impl Default for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
 
     #[test]
     fn test_config_defaults() {
@@ -380,8 +379,10 @@ mod tests {
         let password = "secure_password_456";
         let hash = Config::hash_password(password).expect("Should hash password");
 
-        let mut config = Config::default();
-        config.auth_password_hash = Some(hash);
+        let config = Config {
+            auth_password_hash: Some(hash),
+            ..Config::default()
+        };
 
         // Correct password should verify
         assert!(config.verify_password(password).unwrap());

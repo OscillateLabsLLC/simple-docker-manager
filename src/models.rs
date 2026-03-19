@@ -104,8 +104,7 @@ mod tests {
         assert!(json.contains("80"));
         assert!(json.contains("tcp"));
 
-        let deserialized: PortMapping =
-            serde_json::from_str(&json).expect("Should deserialize");
+        let deserialized: PortMapping = serde_json::from_str(&json).expect("Should deserialize");
         assert_eq!(deserialized.container_port, 8080);
         assert_eq!(deserialized.host_port, Some(80));
         assert_eq!(deserialized.protocol, "tcp");
@@ -225,8 +224,7 @@ mod tests {
         };
 
         let json = serde_json::to_string(&system).expect("Should serialize");
-        let deserialized: SystemMetrics =
-            serde_json::from_str(&json).expect("Should deserialize");
+        let deserialized: SystemMetrics = serde_json::from_str(&json).expect("Should deserialize");
 
         assert_eq!(deserialized.total_containers, 10);
         assert_eq!(deserialized.running_containers, 7);
@@ -282,6 +280,8 @@ mod tests {
 
         assert_eq!(deserialized.id, "sha256:abc123");
         assert_eq!(deserialized.repo_tags.len(), 2);
-        assert!(deserialized.repo_tags.contains(&"ubuntu:latest".to_string()));
+        assert!(deserialized
+            .repo_tags
+            .contains(&"ubuntu:latest".to_string()));
     }
 }

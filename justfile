@@ -1,8 +1,50 @@
-# Simple Docker Manager - Security Checks
+# Simple Docker Manager
 # Run `just --list` to see all available commands
 
-# Default recipe - run all security checks
-default: security-all
+# Default recipe - build and check
+default: check
+
+# ─── Development ──────────────────────────────────────────────
+
+# Format code
+fmt:
+    cargo fmt
+
+# Check formatting (CI-friendly, no changes)
+fmt-check:
+    cargo fmt -- --check
+
+# Run clippy lints
+lint:
+    cargo clippy -- -D warnings
+
+# Run clippy with auto-fix
+lint-fix:
+    cargo clippy --fix --allow-dirty -- -D warnings
+
+# Run tests
+test:
+    cargo test
+
+# Build in debug mode
+build:
+    cargo build
+
+# Build in release mode
+build-release:
+    cargo build --release
+
+# Format, lint, and test
+check: fmt-check lint test
+
+# Format, lint, test, and build release
+ci: fmt-check lint test build-release
+
+# Run the dev server
+run:
+    cargo run
+
+# ─── Security ─────────────────────────────────────────────────
 
 # Install all required security tools
 install-tools:
