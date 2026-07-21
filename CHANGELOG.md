@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/OscillateLabsLLC/simple-docker-manager/compare/v1.0.1...v1.0.2) (2026-07-21)
+
+
+### Bug Fixes
+
+* **lint:** resolve clippy question_mark lint in get_session ([#12](https://github.com/OscillateLabsLLC/simple-docker-manager/issues/12)) ([c5fbab0](https://github.com/OscillateLabsLLC/simple-docker-manager/commit/c5fbab03476ced512f5887bd2ed7e50edee7e2cf))
+
 ## [1.0.1](https://github.com/OscillateLabsLLC/simple-docker-manager/compare/v1.0.0...v1.0.1) (2026-03-19)
 
 
