@@ -60,14 +60,13 @@ impl SessionStore {
         let mut sessions = self.sessions.write().await;
 
         // Check if session exists and is not expired
-        let should_remove = if let Some(session) = sessions.get(session_id) {
+        let should_remove = {
+            let session = sessions.get(session_id)?;
             let session_duration = SystemTime::now()
                 .duration_since(session.last_accessed)
                 .unwrap_or(Duration::ZERO);
 
             session_duration.as_secs() > self.config.session_timeout_seconds
-        } else {
-            return None;
         };
 
         if should_remove {
